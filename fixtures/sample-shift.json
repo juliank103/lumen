@@ -1,0 +1,306 @@
+{
+  "kind": "synthetic_fixture",
+  "description": "Invented examples, not local earnings or live offers.",
+  "now": "2026-10-12T18:00:00.000Z",
+  "events": [
+    {
+      "schemaVersion": 1,
+      "id": "demo-1",
+      "at": "2026-10-12T17:00:00.000Z",
+      "type": "shift.started",
+      "payload": {
+        "shiftId": "sample-lunch",
+        "mode": "fixture"
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "demo-2",
+      "at": "2026-10-12T17:01:00.000Z",
+      "type": "availability.changed",
+      "payload": {
+        "shiftId": "sample-lunch",
+        "platform": "doordash",
+        "available": true
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "demo-3",
+      "at": "2026-10-12T17:01:00.000Z",
+      "type": "availability.changed",
+      "payload": {
+        "shiftId": "sample-lunch",
+        "platform": "uber_eats",
+        "available": true
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "demo-4",
+      "at": "2026-10-12T17:01:00.000Z",
+      "type": "capture.health",
+      "payload": {
+        "shiftId": "sample-lunch",
+        "platform": "doordash",
+        "status": "observing",
+        "coverage": "visible_only"
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "demo-5",
+      "at": "2026-10-12T17:02:00.000Z",
+      "type": "offer.observed",
+      "payload": {
+        "shiftId": "sample-lunch",
+        "offer": {
+          "offerId": "dd:sample1",
+          "platform": "doordash",
+          "merchantKey": "sample-doordash",
+          "orderType": "food",
+          "payCents": 1800,
+          "payBasis": "guaranteed",
+          "source": "fixture",
+          "confidence": 1,
+          "route": {
+            "toPickupMilliMiles": 1000,
+            "deliveryMilliMiles": 5000,
+            "returnMilliMiles": 4000,
+            "minutesLow": 24,
+            "minutesHigh": 32,
+            "source": "fixture",
+            "conflicts": false
+          }
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "demo-6",
+      "at": "2026-10-12T17:03:00.000Z",
+      "type": "outing.started",
+      "payload": {
+        "shiftId": "sample-lunch",
+        "outingId": "lumen-outing1"
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "demo-7",
+      "at": "2026-10-12T17:03:00.000Z",
+      "type": "offer.status",
+      "payload": {
+        "shiftId": "sample-lunch",
+        "offerId": "dd:sample1",
+        "status": "accepted",
+        "evidence": "assignment",
+        "outingId": "lumen-outing1"
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "demo-8",
+      "at": "2026-10-12T17:04:00.000Z",
+      "type": "offer.observed",
+      "payload": {
+        "shiftId": "sample-lunch",
+        "offer": {
+          "offerId": "gh:sample1",
+          "platform": "grubhub",
+          "merchantKey": "sample-grubhub",
+          "orderType": "food",
+          "payCents": 700,
+          "payBasis": "guaranteed",
+          "source": "fixture",
+          "confidence": 1,
+          "route": {
+            "toPickupMilliMiles": 2000,
+            "deliveryMilliMiles": 4000,
+            "returnMilliMiles": 3000,
+            "minutesLow": 24,
+            "minutesHigh": 34,
+            "source": "fixture",
+            "conflicts": false
+          }
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "demo-9",
+      "at": "2026-10-12T17:04:00.000Z",
+      "type": "offer.status",
+      "payload": {
+        "shiftId": "sample-lunch",
+        "offerId": "gh:sample1",
+        "status": "declined",
+        "evidence": "explicit_decline"
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "demo-10",
+      "at": "2026-10-12T17:24:00.000Z",
+      "type": "trip.segment",
+      "payload": {
+        "shiftId": "sample-lunch",
+        "outingId": "lumen-outing1",
+        "segmentId": "drive1",
+        "startedAt": "2026-10-12T17:03:00.000Z",
+        "endedAt": "2026-10-12T17:24:00.000Z",
+        "milliMiles": 6000,
+        "kind": "delivery"
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "demo-11",
+      "at": "2026-10-12T17:24:00.000Z",
+      "type": "offer.status",
+      "payload": {
+        "shiftId": "sample-lunch",
+        "offerId": "dd:sample1",
+        "status": "completed",
+        "evidence": "completion"
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "demo-12",
+      "at": "2026-10-12T17:24:00.000Z",
+      "type": "offer.payment",
+      "payload": {
+        "shiftId": "sample-lunch",
+        "offerId": "dd:sample1",
+        "payCents": 1800,
+        "stage": "final"
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "demo-13",
+      "at": "2026-10-12T17:24:00.000Z",
+      "type": "merchant.wait",
+      "payload": {
+        "shiftId": "sample-lunch",
+        "offerId": "dd:sample1",
+        "minutes": 6
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "demo-14",
+      "at": "2026-10-12T17:34:00.000Z",
+      "type": "trip.segment",
+      "payload": {
+        "shiftId": "sample-lunch",
+        "outingId": "lumen-outing1",
+        "segmentId": "return1",
+        "startedAt": "2026-10-12T17:24:00.000Z",
+        "endedAt": "2026-10-12T17:34:00.000Z",
+        "milliMiles": 4000,
+        "kind": "return"
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "demo-15",
+      "at": "2026-10-12T17:34:00.000Z",
+      "type": "outing.ended",
+      "payload": {
+        "shiftId": "sample-lunch",
+        "outingId": "lumen-outing1"
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "demo-16",
+      "at": "2026-10-12T17:35:00.000Z",
+      "type": "offer.observed",
+      "payload": {
+        "shiftId": "sample-lunch",
+        "offer": {
+          "offerId": "ue:example39",
+          "platform": "uber_eats",
+          "merchantKey": "sample-uber_eats",
+          "orderType": "food",
+          "payCents": 3900,
+          "payBasis": "displayed_estimate",
+          "source": "fixture",
+          "confidence": 1,
+          "route": {
+            "toPickupMilliMiles": 2000,
+            "deliveryMilliMiles": 18000,
+            "returnMilliMiles": 20000,
+            "minutesLow": 60,
+            "minutesHigh": 90,
+            "source": "fixture",
+            "conflicts": false
+          }
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "demo-17",
+      "at": "2026-10-12T17:36:00.000Z",
+      "type": "offer.status",
+      "payload": {
+        "shiftId": "sample-lunch",
+        "offerId": "ue:example39",
+        "status": "unknown",
+        "evidence": "missing"
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "demo-18",
+      "at": "2026-10-12T17:37:00.000Z",
+      "type": "offer.observed",
+      "payload": {
+        "shiftId": "sample-lunch",
+        "offer": {
+          "offerId": "dd:missing-route",
+          "platform": "doordash",
+          "merchantKey": "sample-doordash",
+          "orderType": "food",
+          "payCents": 1400,
+          "payBasis": "guaranteed",
+          "source": "fixture",
+          "confidence": 1,
+          "route": {
+            "toPickupMilliMiles": 1000,
+            "deliveryMilliMiles": 4000,
+            "returnMilliMiles": null,
+            "minutesLow": null,
+            "minutesHigh": null,
+            "source": "unavailable",
+            "conflicts": false
+          }
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "demo-19",
+      "at": "2026-10-12T17:38:00.000Z",
+      "type": "offer.status",
+      "payload": {
+        "shiftId": "sample-lunch",
+        "offerId": "dd:missing-route",
+        "status": "expired",
+        "evidence": "expiry"
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "demo-20",
+      "at": "2026-10-12T18:00:00.000Z",
+      "type": "shift.ended",
+      "payload": {
+        "shiftId": "sample-lunch"
+      }
+    }
+  ]
+}

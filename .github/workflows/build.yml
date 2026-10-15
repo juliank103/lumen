@@ -1,0 +1,72 @@
+name: Build
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+jobs:
+  ios:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: ios
+    steps:
+      - uses: actions/checkout@v4
+      - name: Personalize
+        working-directory: .
+        env:
+          HOME_NAME: ${{ secrets.HOME_NAME }}
+          HOME_QUERY: ${{ secrets.HOME_QUERY }}
+          AREA_LAT: ${{ secrets.AREA_LAT }}
+          AREA_LON: ${{ secrets.AREA_LON }}
+          ARTIFACT_KEY: ${{ secrets.ARTIFACT_KEY }}
+        run: |
+          if [ -z "$ARTIFACT_KEY" ] || [ -z "$HOME_QUERY" ]; then echo "Build settings (secrets) are missing"; exit 1; fi
+          python3 tools/personalize.py
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        run: xcodegen generate --spec project.json
+      - name: Compile
+        run: |
+          set -o pipefail
+          xcodebuild -project Lumen.xcodeproj -scheme Lumen -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build > build.log 2>&1 || true
+          grep -E '\*\* BUILD' build.log || true
+          if grep -q 'BUILD FAILED' build.log; then grep -c 'error:' build.log; exit 1; fi
+          test -d build/Build/Products/Release-iphoneos/Lumen.app
+      - name: Package
+        run: |
+          APP=build/Build/Products/Release-iphoneos/Lumen.app
+          GROUP=$(plutil -extract settings.base.COPILOT_APP_GROUP raw -o - project.json)
+          for name in App Capture; do
+            sed 's/\$(COPILOT_APP_GROUP)/'"$GROUP"'/' "Generated/$name.entitlements" > "build/$name.entitlements"
+          done
+          codesign --force --sign - --entitlements build/Capture.entitlements "$APP/PlugIns/CaptureProbe.appex"
+          codesign --force --sign - "$APP/PlugIns/TripWidgets.appex"
+          codesign --force --sign - --entitlements build/App.entitlements "$APP"
+          mkdir -p dist/Payload && cp -R "$APP" dist/Payload/
+          (cd dist && zip -qry Lumen-unsigned.ipa Payload)
+      - name: Unit tests
+        continue-on-error: true
+        run: |
+          xcodebuild test -project Lumen.xcodeproj -scheme Lumen -destination 'platform=iOS Simulator,name=iPhone 16 Pro Max' \
+            -derivedDataPath testbuild -only-testing:LumenTests CODE_SIGNING_ALLOWED=NO > test.log 2>&1 || true
+          grep -E '\*\* TEST' test.log || true
+          grep -q '\*\* TEST SUCCEEDED' test.log
+      # Outputs are encrypted: the build carries personal settings, and artifacts of a public repo are downloadable.
+      - name: Encrypt outputs
+        if: always()
+        env:
+          ARTIFACT_KEY: ${{ secrets.ARTIFACT_KEY }}
+        run: |
+          mkdir -p out
+          zip -qj out/bundle.zip dist/*.ipa build.log test.log 2>/dev/null || zip -qj out/bundle.zip build.log
+          openssl enc -aes-256-cbc -pbkdf2 -salt -in out/bundle.zip -out out/bundle.enc -pass env:ARTIFACT_KEY
+          rm out/bundle.zip
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bundle
+          path: ios/out/bundle.enc
+          retention-days: 14
