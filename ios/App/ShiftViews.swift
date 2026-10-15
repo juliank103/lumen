@@ -133,43 +133,7 @@ private struct GoalEditor: ViewModifier {
     }
 }
 
-struct ShiftHistoryView: View {
-    @ObservedObject private var shifts = ShiftStore.shared
-    @State private var editing: ShiftEditTarget?
-    @State private var deleting: Shift?
-
-    var body: some View {
-        List(Array(shifts.history.reversed())) { shift in
-            NavigationLink {
-                PastShiftView(shiftId: shift.id)
-            } label: {
-                ShiftRow(shift: shift, metrics: shifts.metrics(for: shift))
-            }
-            .swipeActions {
-                Button(role: .destructive) { deleting = shift } label: { Label("Delete", systemImage: "trash") }
-                Button { editing = ShiftEditTarget(shift: shift) } label: { Label("Edit", systemImage: "clock") }.tint(Theme.purple)
-            }
-        }
-        .navigationTitle("Past shifts")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { editing = ShiftEditTarget(shift: nil) } label: { Image(systemName: "plus") }.accessibilityLabel("Add a shift")
-            }
-        }
-        .sheet(item: $editing) { target in ShiftEditor(shift: target.shift) }
-        .confirmationDialog("Delete this shift?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
-                            presenting: deleting) { shift in
-            Button("Delete shift", role: .destructive) { shifts.deleteShift(shift.id) }
-        } message: { _ in
-            Text("Its time and miles are removed from your stats. Orders from that time stay in Offers.")
-        }
-        .overlay {
-            if shifts.history.isEmpty { ContentUnavailableView("No past shifts yet", systemImage: "clock") }
-        }
-    }
-}
-
-/// One past shift, with "Edit times" in the toolbar.
+/// One past shift (from Earnings -> day), with "Edit" in the toolbar.
 struct PastShiftView: View {
     @ObservedObject private var shifts = ShiftStore.shared
     let shiftId: String
@@ -308,24 +272,5 @@ struct ShiftEditor: View {
                     start = end.addingTimeInterval(-4 * 3600)
                 }
             }
-    }
-}
-
-struct ShiftRow: View {
-    let shift: Shift
-    let metrics: ShiftMetrics?
-    var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(shift.startedAt.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
-                     + (metrics?.period.map { " · \($0.label)" } ?? "")).font(.headline)
-                if let m = metrics {
-                    Text("\(ShiftFormat.duration(m.shiftSeconds)) · \(ShiftFormat.rate(m.perOnlineHourCents, "hr")) · \(m.completed) orders")
-                        .font(.subheadline).foregroundStyle(.secondary)
-                }
-            }
-            Spacer()
-            if let m = metrics { Text(ShiftFormat.money(m.earningsCents)).font(.headline.monospacedDigit()) }
-        }
     }
 }

@@ -149,16 +149,6 @@ final class ScreenTour: XCTestCase {
             back()
         }
 
-        // Past shifts
-        go("shifts")
-        shot("past-shifts")
-        if tap(app.cells.firstMatch) || tap(app.buttons.matching(NSPredicate(format: "label CONTAINS ' · '")).firstMatch) {
-            shotScrolling("past-shift", pages: 3)
-            if tap(app.buttons["Edit times"].firstMatch) { shot("past-shift-edit-times"); cancel() }
-            back()
-        }
-        if tap(app.buttons["Add a shift"].firstMatch) { shot("past-shifts-add"); cancel() }
-
         // Account
         go("account")
         shotScrolling("account", pages: 4)

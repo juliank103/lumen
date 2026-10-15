@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Where the app can go (user, Oct 15: DoorDash-style menu instead of tabs — the app has outgrown four tabs).
 enum AppSection: String, CaseIterable, Identifiable {
-    case home, offers, earnings, restaurants, shifts, account, diagnostics
+    case home, offers, earnings, restaurants, account, diagnostics
     var id: String { rawValue }
 
     var title: String {
@@ -11,7 +11,6 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .offers: return "Offers"
         case .earnings: return "Earnings"
         case .restaurants: return "Restaurants"
-        case .shifts: return "Past shifts"
         case .account: return "Account"
         case .diagnostics: return "Diagnostics"
         }
@@ -23,14 +22,13 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .offers: return "list.bullet.rectangle"
         case .earnings: return "dollarsign.circle"
         case .restaurants: return "fork.knife"
-        case .shifts: return "clock.arrow.circlepath"
         case .account: return "person.crop.circle"
         case .diagnostics: return "wrench.and.screwdriver"
         }
     }
 
     /// Main destinations above the divider; the rest below it (like DoorDash's Messages/Help).
-    static let main: [AppSection] = [.home, .offers, .earnings, .restaurants, .shifts, .account]
+    static let main: [AppSection] = [.home, .offers, .earnings, .restaurants, .account]
 }
 
 @MainActor
