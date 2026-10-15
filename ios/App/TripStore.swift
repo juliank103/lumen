@@ -429,7 +429,11 @@ final class TripStore: ObservableObject {
                 order.endedAt = min(now, max(endedAt ?? order.acceptedAt, order.acceptedAt.addingTimeInterval(60)))
             }
             let names = stores.map { $0.trimmingCharacters(in: .whitespaces) }
-            if names.count == order.stores.count, names.allSatisfy({ !$0.isEmpty }) {
+            let fewer = order.ended != nil && !names.isEmpty && names.count < order.stores.count
+            if names.count == order.stores.count || fewer, names.allSatisfy({ !$0.isEmpty }) {
+                if fewer {
+                    trip.steps.removeAll { $0.offerId == offerId && $0.stop >= names.count && ($0.kind == .arrivedStore || $0.kind == .leftStore) }
+                }
                 order.stores = names
                 order.merchant = names.first
             }

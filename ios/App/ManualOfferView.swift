@@ -148,7 +148,8 @@ struct ManualOfferForm: View {
     @State private var payText = ""
     @State private var milesText = ""
     @State private var minutesText = ""
-    @State private var store = ""
+    /// One name per pickup (searched in the restaurant list).
+    @State private var stores = [""]
     @State private var pickups = 1
     @State private var dropoffs = 1
     @State private var outcome: Outcome
@@ -177,9 +178,13 @@ struct ManualOfferForm: View {
                 amountField(outcome == .completed ? "Pay (with tip)" : "Pay", "$26.70", $payText)
                 amountField("Miles", "11.0", $milesText)
                 amountField("Minutes on the card", "57", $minutesText, decimal: false)
-                TextField("Store (optional)", text: $store).textInputAutocapitalization(.words)
                 Stepper("Pickups: \(pickups)", value: $pickups, in: 1...5)
                 Stepper("Drop-offs: \(dropoffs)", value: $dropoffs, in: 1...6)
+            }
+            Section(pickups == 1 ? "Store" : "Stores") {
+                ForEach(stores.indices, id: \.self) { index in
+                    StoreField(prompt: pickups == 1 ? "Store (optional)" : "Store \(index + 1) (optional)", text: $stores[index], platform: platform)
+                }
             }
             Section {
                 DatePicker(outcome == .declined ? "Offered at" : "Accepted at", selection: $offeredAt, in: ...Date())
@@ -196,6 +201,9 @@ struct ManualOfferForm: View {
                     Text(offer.detail).font(.subheadline).foregroundStyle(.secondary)
                 }
             }
+        }
+        .onChange(of: pickups) { _, count in
+            stores = Array((stores + Array(repeating: "", count: count)).prefix(count))
         }
         .navigationTitle("Add an order")
         .navigationBarTitleDisplayMode(.inline)
@@ -231,13 +239,13 @@ struct ManualOfferForm: View {
             fields["tone"] = "unknown"
             fields["detail"] = "Added by hand without miles."
         }
-        let name = store.trimmingCharacters(in: .whitespaces)
+        let names = stores.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         let stamp = Int(offeredAt.timeIntervalSince1970)
         fields["seenAt"] = ISO8601DateFormatter().string(from: offeredAt)
         fields["platform"] = platform
         fields["payCents"] = payCents
         if let minutes { fields["appMinutes"] = minutes }
-        if !name.isEmpty { fields["merchant"] = name; fields["merchants"] = [name] }
+        if let first = names.first { fields["merchant"] = first; fields["merchants"] = names }
         fields["orderCount"] = dropoffs
         fields["pickupCount"] = pickups
         fields["dropoffCount"] = dropoffs

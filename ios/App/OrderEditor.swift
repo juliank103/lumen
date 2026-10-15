@@ -49,10 +49,17 @@ struct OrderEditor: View {
                     }
                 }
                 if !stores.isEmpty {
-                    Section(stores.count == 1 ? "Store" : "Stores") {
+                    Section {
                         ForEach(stores.indices, id: \.self) { index in
-                            TextField("Store", text: $stores[index]).textInputAutocapitalization(.words)
+                            StoreField(prompt: "Store", text: $stores[index], platform: platform)
                         }
+                        if finished, stores.count > 1 {
+                            Button("Remove the last store", role: .destructive) { stores.removeLast() }
+                        }
+                    } header: {
+                        Text(stores.count == 1 ? "Store" : "Stores")
+                    } footer: {
+                        if finished, stores.count > 1 { Text("For several orders picked up at one store, keep just that store.") }
                     }
                 }
             }
