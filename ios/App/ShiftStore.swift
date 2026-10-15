@@ -265,6 +265,19 @@ final class ShiftStore: ObservableObject {
     }
 
     /// A shift worked without Lumen running (no miles recorded; orders ticked in that time count toward it).
+    /// Miles typed in for a past shift (user, Oct 15: edit a shift's details): orders → delivery, other → repositioning.
+    /// The per-hour split is dropped, so its miles count on the day it started.
+    func setMiles(_ id: String, orderMiles: Double, otherMiles: Double) {
+        guard let index = history.firstIndex(where: { $0.id == id }) else { return }
+        var shift = history[index]
+        shift.meters = ["delivery": max(0, orderMiles) * 1609.344, "reposition": max(0, otherMiles) * 1609.344]
+        shift.buckets = nil
+        shift.finalMetrics = metricsJSON(for: shift, now: shift.endedAt ?? Date())
+        history[index] = shift
+        save(force: true)
+        refreshMetrics()
+    }
+
     /// A shift added by hand, with the miles the driver entered (orders → delivery, other → repositioning).
     func addShift(start: Date, end: Date, orderMiles: Double = 0, otherMiles: Double = 0) {
         var meters: [String: Double] = [:]

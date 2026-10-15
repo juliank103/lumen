@@ -122,6 +122,7 @@ struct OfferDetail: View {
     @Environment(\.dismiss) private var dismiss
     let offer: LiveOffer
     @State private var confirmDelete = false
+    @State private var editingOrder: OrderEditTarget?
     var body: some View {
         List {
             Section {
@@ -149,7 +150,13 @@ struct OfferDetail: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(role: .destructive) { confirmDelete = true } label: { Image(systemName: "trash") }.accessibilityLabel("Delete offer")
             }
+            if TripStore.shared.trip(for: offer.offerId ?? offer.id) != nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Edit") { editingOrder = OrderEditTarget(offerId: offer.offerId ?? offer.id) }
+                }
+            }
         }
+        .sheet(item: $editingOrder) { target in OrderEditor(offerId: target.offerId) }
         .confirmationDialog("Delete this offer?", isPresented: $confirmDelete) {
             Button("Delete from history", role: .destructive) {
                 model.deleteOffer(offer.offerId ?? offer.id)

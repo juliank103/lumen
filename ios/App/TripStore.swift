@@ -65,13 +65,13 @@ struct Trip: Codable, Identifiable, Equatable {
     struct Order: Codable, Identifiable, Equatable {
         var id: String { offerId }
         let offerId: String
-        let platform: String
+        var platform: String
         /// Pay counted in totals: the offer's pay, or what the driver entered as the real payout (tips can change it).
         var payCents: Int
-        let merchant: String?
+        var merchant: String?
         var stores: [String]
         var dropoffs: Int
-        let acceptedAt: Date
+        var acceptedAt: Date
         /// nil while active; "completed", "unassigned", "cancelled by customer", … once ended.
         var ended: String?
         var endedAt: Date?
@@ -115,7 +115,7 @@ struct Trip: Codable, Identifiable, Equatable {
     }
 
     let id: String
-    let startedAt: Date
+    var startedAt: Date
     var orders: [Order]
     var steps: [Step]
     var endedAt: Date?
@@ -409,6 +409,50 @@ final class TripStore: ObservableObject {
             ShiftStore.shared.recomputeFinals(near: trip.startedAt)
         }
         save()
+    }
+
+    /// Corrects an order by hand (user, Oct 15: "I should be able to edit details of … completed orders"): app, pay,
+    /// outcome, accepted and ended times, store names. The trip's span follows its orders; shift totals are redone.
+    func editOrder(_ offerId: String, platform: String, payCents: Int, ended: String?, acceptedAt: Date, endedAt: Date?,
+                   stores: [String], at now: Date = Date()) {
+        func apply(_ trip: inout Trip) -> Bool {
+            guard let index = trip.orders.firstIndex(where: { $0.offerId == offerId }) else { return false }
+            var order = trip.orders[index]
+            if order.payCents != payCents {
+                if order.offerPayCents == nil { order.offerPayCents = order.payCents }
+                order.payCents = max(0, payCents)
+            }
+            order.platform = platform
+            order.acceptedAt = min(acceptedAt, now)
+            if let ended, order.ended != nil {
+                order.ended = ended
+                order.endedAt = min(now, max(endedAt ?? order.acceptedAt, order.acceptedAt.addingTimeInterval(60)))
+            }
+            let names = stores.map { $0.trimmingCharacters(in: .whitespaces) }
+            if names.count == order.stores.count, names.allSatisfy({ !$0.isEmpty }) {
+                order.stores = names
+                order.merchant = names.first
+            }
+            trip.orders[index] = order
+            trip.startedAt = min(trip.orders.map(\.acceptedAt).min() ?? trip.startedAt, trip.steps.map(\.at).min() ?? .distantFuture)
+            if trip.endedAt != nil {
+                trip.endedAt = max(trip.orders.compactMap(\.endedAt).max() ?? trip.startedAt, trip.steps.map(\.at).max() ?? .distantPast)
+            }
+            var fields: [String: Any] = ["payCents": order.payCents, "platform": platform,
+                                         "acceptedAt": Self.localFormatter.string(from: order.acceptedAt)]
+            if let endedAt = order.endedAt { fields["endedAt"] = Self.localFormatter.string(from: endedAt) }
+            if let outcome = order.ended { fields["ended"] = outcome }
+            OfferJournal.appendEvents([event("order_edited", offerId, now, trip.id, fields)])
+            return true
+        }
+        if var trip = active, apply(&trip) { active = trip }
+        else if let index = history.lastIndex(where: { $0.orders.contains { $0.offerId == offerId } }) {
+            var trip = history[index]
+            if apply(&trip) { history[index] = trip }
+            ShiftStore.shared.recomputeFinals(near: trip.startedAt)
+        }
+        save()
+        ShiftStore.shared.refreshMetrics()
     }
 
     /// Removes an order (a mistaken accept, or one the driver doesn't want in their history): its steps go too, and a

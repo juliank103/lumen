@@ -448,6 +448,7 @@ struct DayDetailView: View {
     let date: Date
     @State private var deleting: RangeMetrics.OrderRow?
     @State private var editing: ShiftEditTarget?
+    @State private var editingOrder: OrderEditTarget?
 
     var body: some View {
         List {
@@ -482,9 +483,7 @@ struct DayDetailView: View {
                     ForEach(refs) { ref in
                         let shift = (shifts.history + [shifts.current].compactMap { $0 }).first { $0.id == ref.id }
                         NavigationLink {
-                            if let shift, let m = shifts.metrics(for: shift) {
-                                List { ShiftOverview(shift: shift, metrics: m) }.navigationTitle("Shift")
-                            }
+                            PastShiftView(shiftId: ref.id)
                         } label: {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text((ref.period?.label ?? "") + (ref.period == nil ? "Shift" : " shift"))
@@ -532,6 +531,8 @@ struct DayDetailView: View {
                         }
                         .swipeActions {
                             Button(role: .destructive) { deleting = order } label: { Label("Delete", systemImage: "trash") }
+                            Button { editingOrder = OrderEditTarget(offerId: order.offerId) } label: { Label("Edit", systemImage: "pencil") }
+                                .tint(Theme.purple)
                         }
                     }
                 }
@@ -545,6 +546,7 @@ struct DayDetailView: View {
         .navigationTitle(date.formatted(.dateTime.weekday(.wide).month(.abbreviated).day()))
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $editing) { target in ShiftEditor(shift: target.shift) }
+        .sheet(item: $editingOrder) { target in OrderEditor(offerId: target.offerId) }
         .confirmationDialog("Delete this order?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
                             presenting: deleting) { order in
             Button("Delete from history", role: .destructive) { model.deleteOffer(order.offerId) }

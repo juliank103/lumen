@@ -181,7 +181,7 @@ struct PastShiftView: View {
                 if let m = shifts.metrics(for: shift) { ShiftOverview(shift: shift, metrics: m) }
             }
             .navigationTitle(shift.startedAt.formatted(date: .abbreviated, time: .omitted))
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Edit times") { editing = true } } }
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Edit") { editing = true } } }
             .sheet(isPresented: $editing) { ShiftEditor(shift: shift) }
         } else {
             ContentUnavailableView("Shift deleted", systemImage: "clock")
@@ -212,6 +212,8 @@ struct ShiftEditor: View {
     @State private var endRunning = false
     @State private var orderMilesText = ""
     @State private var otherMilesText = ""
+    @State private var initialOrderMiles = ""
+    @State private var initialOtherMiles = ""
 
     private var isRunning: Bool { shift != nil && shift?.id == shifts.current?.id }
 
@@ -237,10 +239,9 @@ struct ShiftEditor: View {
                     }
                 } footer: {
                     Text(isRunning && !endRunning ? "The shift is still running; it ends by itself or with End shift."
-                         : "Online time: " + ShiftFormat.duration(Int(max(0, end.timeIntervalSince(start)))) + "."
-                         + (shift == nil ? "" : " Miles aren't changed."))
+                         : "Online time: " + ShiftFormat.duration(Int(max(0, end.timeIntervalSince(start)))) + ".")
                 }
-                if shift == nil {
+                if !isRunning {
                     Section {
                         HStack {
                             Text("Miles on orders")
@@ -253,7 +254,7 @@ struct ShiftEditor: View {
                             TextField("0", text: $otherMilesText).keyboardType(.decimalPad).multilineTextAlignment(.trailing).frame(maxWidth: 100)
                         }
                     } footer: {
-                        Text("Other miles: driving back and repositioning (deadhead).")
+                        Text("Other miles: driving back and repositioning (deadhead)." + (shift == nil ? "" : " Leave as is to keep the tracked miles."))
                     }
                 }
                 if shift != nil && !isRunning {
@@ -273,6 +274,9 @@ struct ShiftEditor: View {
                         if let shift {
                             shifts.updateShift(shift.id, start: start, end: isRunning ? nil : end)
                             if isRunning && endRunning { shifts.end(at: end, exact: true) }
+                            if !isRunning, orderMilesText != initialOrderMiles || otherMilesText != initialOtherMiles {
+                                shifts.setMiles(shift.id, orderMiles: miles(orderMilesText), otherMiles: miles(otherMilesText))
+                            }
                         } else {
                             shifts.addShift(start: start, end: end, orderMiles: miles(orderMilesText), otherMiles: miles(otherMilesText))
                         }
@@ -291,6 +295,11 @@ struct ShiftEditor: View {
                 if let shift {
                     start = shift.startedAt
                     end = shift.endedAt ?? Date()
+                    let m = shift.meters, mile = 1609.344
+                    orderMilesText = String(format: "%.1f", ((m["toPickup"] ?? 0) + (m["delivery"] ?? 0)) / mile)
+                    otherMilesText = String(format: "%.1f", ((m["driveBack"] ?? 0) + (m["reposition"] ?? 0)) / mile)
+                    initialOrderMiles = orderMilesText
+                    initialOtherMiles = otherMilesText
                 } else if let day, !Calendar.current.isDateInToday(day) {
                     start = Calendar.current.date(bySettingHour: 17, minute: 0, second: 0, of: day) ?? day
                     end = start.addingTimeInterval(4 * 3600)
