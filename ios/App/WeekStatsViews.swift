@@ -80,13 +80,17 @@ struct StatsTab: View {
                     }
                     .font(.body.weight(.semibold))
                 }
+                ToolbarItem(placement: .topBarTrailing) { AddButton() }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         if let current = shifts.current {
                             Button("End shift", role: .destructive) { confirmEnd = true }
-                            Button("Fix the start time…") { editingShift = ShiftEditTarget(shift: current) }
+                            Button("Edit shift times…") { editingShift = ShiftEditTarget(shift: current) }
                         } else {
                             Button("Start shift") { shifts.startIfNeeded() }
+                            if let last = shifts.history.last {
+                                Button("Edit last shift's times…") { editingShift = ShiftEditTarget(shift: last) }
+                            }
                         }
                         Button("Add a past shift…") { editingShift = ShiftEditTarget(shift: nil) }
                         Button("Earnings goal…") { editingGoal = true }
@@ -112,6 +116,10 @@ struct StatsTab: View {
             }
             .onReceive(shifts.$metrics) { _ in
                 guard week.isCurrentWeek else { return }
+                week.offers = model.offers
+                week.compute()
+            }
+            .onReceive(EntryStore.shared.$entries.dropFirst()) { _ in
                 week.offers = model.offers
                 week.compute()
             }
@@ -285,6 +293,9 @@ struct MetricTiles: View {
             let lost = week.unassigned + week.cancelled
             return lost > 0 ? "Orders · \(lost) ended early" : "Orders"
         case .hours: return String(format: "Online · %.1f on orders", Double(week.activeSeconds) / 3600)
+        case .earnings:
+            if let expenses = week.expensesCents, expenses > 0, let net = week.netCents { return "Earnings · " + ShiftFormat.money(net) + " net" }
+            return "Earnings"
         case .idle: return "Idle hours"
         case .active: return "Hours on deliveries"
         case .deadhead: return "Deadhead miles"
@@ -484,6 +495,30 @@ struct DayDetailView: View {
                             if let shift { Button { editing = ShiftEditTarget(shift: shift) } label: { Label("Edit", systemImage: "clock") }.tint(Theme.purple) }
                         }
                     }
+                }
+            }
+            if let entries = day.entries, !entries.isEmpty {
+                Section {
+                    ForEach(entries) { entry in
+                        HStack(spacing: 10) {
+                            Image(systemName: entry.kind == "expense" ? "minus.circle.fill" : "plus.circle.fill")
+                                .foregroundStyle(entry.kind == "expense" ? Color.red : Color.green)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(entry.category ?? (entry.kind == "expense" ? "Expense" : "Earnings"))
+                                Text([entry.platform.map(Theme.appName), entry.note].compactMap { $0 }.joined(separator: " · "))
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text((entry.kind == "expense" ? "−" : "+") + ShiftFormat.money(entry.amountCents)).monospacedDigit()
+                        }
+                        .swipeActions {
+                            Button(role: .destructive) { EntryStore.shared.delete(entry.id) } label: { Label("Delete", systemImage: "trash") }
+                        }
+                    }
+                } header: {
+                    Text("Added")
+                } footer: {
+                    if let net = day.netCents, (day.expensesCents ?? 0) > 0 { Text("Net after expenses: " + ShiftFormat.money(net)) }
                 }
             }
             if let orders = day.orders, !orders.isEmpty {

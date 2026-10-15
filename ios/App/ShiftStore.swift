@@ -87,9 +87,10 @@ final class ShiftStore: ObservableObject {
         refreshMetrics()
     }
 
-    func end(at now: Date = Date()) {
+    /// `exact`: end at `now` as given (the driver set the end time), not at the pause.
+    func end(at now: Date = Date(), exact: Bool = false) {
         guard var shift = current else { return }
-        shift.endedAt = shift.pausedAt ?? now
+        shift.endedAt = exact ? min(Date(), max(now, shift.startedAt.addingTimeInterval(60))) : shift.pausedAt ?? now
         shift.pausedAt = nil
         current = nil
         shift.finalMetrics = metricsJSON(for: shift, now: shift.endedAt ?? now)
@@ -264,9 +265,13 @@ final class ShiftStore: ObservableObject {
     }
 
     /// A shift worked without Lumen running (no miles recorded; orders ticked in that time count toward it).
-    func addShift(start: Date, end: Date) {
+    /// A shift added by hand, with the miles the driver entered (orders → delivery, other → repositioning).
+    func addShift(start: Date, end: Date, orderMiles: Double = 0, otherMiles: Double = 0) {
+        var meters: [String: Double] = [:]
+        if orderMiles > 0 { meters["delivery"] = orderMiles * 1609.344 }
+        if otherMiles > 0 { meters["reposition"] = otherMiles * 1609.344 }
         var shift = Shift(id: "shift-manual-\(Int(start.timeIntervalSince1970))", startedAt: start, endedAt: max(end, start.addingTimeInterval(60)),
-                          pausedAt: nil, meters: [:], goalCents: nil, finalMetrics: nil)
+                          pausedAt: nil, meters: meters, goalCents: nil, finalMetrics: nil)
         shift.finalMetrics = metricsJSON(for: shift, now: shift.endedAt ?? end)
         history.append(shift)
         history.sort { $0.startedAt < $1.startedAt }

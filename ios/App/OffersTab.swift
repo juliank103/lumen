@@ -66,7 +66,7 @@ struct OffersTab: View {
                 }
             }
             .navigationTitle("Offers")
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { AddOfferButton() } }
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { AddButton() } }
             .menuButton()
             .confirmationDialog("Delete this offer?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
                                 presenting: deleting) { offer in

@@ -34,7 +34,7 @@ struct ExportButton: View {
         let offersJSON = ShiftEngine.json(encodable: model.offers.filter { !DemoData.isDemo($0.offerId) })
         let tripsJSON = ShiftEngine.json(encodable: trips)
         let data = "{\"offers\":\(offersJSON),\"trips\":\(tripsJSON),\"shifts\":\(ShiftEngine.json(shiftRows)),"
-            + "\"restaurants\":\(RestaurantStore.shared.databaseJSON),\"offsetMinutes\":\(ShiftEngine.offsetMinutes)}"
+            + "\"restaurants\":\(RestaurantStore.shared.databaseJSON),\"entries\":\(EntryStore.shared.json),\"offsetMinutes\":\(ShiftEngine.offsetMinutes)}"
         guard let tablesText = ShiftEngine.call("exportTablesJSON", [data]),
               let tables = try? JSONSerialization.jsonObject(with: Data(tablesText.utf8)) as? [String: String] else { failed = true; return }
         let stamp = Date().formatted(.iso8601.year().month().day())
@@ -52,7 +52,7 @@ struct ExportButton: View {
             let journal = "[" + OfferJournal.readAllLines().joined(separator: ",") + "]"
             let everything = "{\"exportedAt\":\(ShiftEngine.json(ISO8601DateFormatter().string(from: Date()))),"
                 + "\"offers\":\(offersJSON),\"trips\":\(tripsJSON),\"shifts\":\(ShiftEngine.json(shiftRows)),"
-                + "\"restaurants\":\(RestaurantStore.shared.databaseJSON),\"journal\":\(journal)}"
+                + "\"restaurants\":\(RestaurantStore.shared.databaseJSON),\"entries\":\(EntryStore.shared.json),\"journal\":\(journal)}"
             let url = folder.appendingPathComponent("lumen-history.json")
             try everything.write(to: url, atomically: true, encoding: .utf8)
             urls.append(url)
@@ -104,6 +104,7 @@ struct RestoreButton: View {
         let offers = model.importOffers(decode("offers", [LiveOffer].self) ?? [])
         let trips = TripStore.shared.importTrips(decode("trips", [Trip].self) ?? [])
         let shifts = ShiftStore.shared.importShifts(decode("shifts", [Shift].self) ?? [])
+        let entries = EntryStore.shared.importEntries(decode("entries", [MoneyEntry].self) ?? [])
         var restaurants = false
         if let db = root["restaurants"], !(db is NSNull), let json = try? JSONSerialization.data(withJSONObject: db),
            let text = String(data: json, encoding: .utf8) {
@@ -115,7 +116,7 @@ struct RestoreButton: View {
             journal = lines.count
         }
         RestaurantStore.shared.update(offers: model.offers, trips: TripStore.shared.history + [TripStore.shared.active].compactMap { $0 })
-        return "Added \(offers) offers, \(trips) trips, and \(shifts) shifts" + (restaurants ? ", plus your restaurant list" : "")
+        return "Added \(offers) offers, \(trips) trips, \(shifts) shifts" + (entries > 0 ? ", \(entries) expenses or extra earnings" : "") + (restaurants ? ", plus your restaurant list" : "")
             + (journal > 0 ? " and \(journal) history events" : "") + ". Anything already on this phone was kept."
     }
 }

@@ -90,7 +90,7 @@ struct DashTab: View {
                     ReadingToggle(reading: model.isReading, capturing: model.screenCaptured, text: model.statusText)
                 }
                 // An offer the reader missed, typed in from the card (user, Oct 15).
-                ToolbarItem(placement: .topBarTrailing) { AddOfferButton() }
+                ToolbarItem(placement: .topBarTrailing) { AddButton() }
             }
             .menuButton()
         }

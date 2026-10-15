@@ -398,17 +398,31 @@
     const onlineSeconds = Math.max(shiftSeconds, activeSeconds); // A trip ticked outside a shift still counts as online.
     const orders = ordersOf(input.trips).filter(o => ms(o.acceptedAt) >= a && ms(o.acceptedAt) < b);
     const completed = orders.filter(o => o.ended === 'completed');
-    const earningsCents = completed.reduce((t, o) => t + (o.payCents || 0), 0);
+    /* Added by hand (user, Oct 15, Gridwise-style ＋): "extra" = tips, bonuses, and other earnings (counted in
+     * earnings and its app's share); "expense" = costs, giving net earnings. */
+    const entries = (input.entries || []).filter(e => ms(e.at) >= a && ms(e.at) < b && valid(e.amountCents) && e.amountCents > 0)
+      .sort((x, y) => ms(x.at) - ms(y.at));
+    const extras = entries.filter(e => e.kind === 'extra'), expenses = entries.filter(e => e.kind === 'expense');
+    const extrasCents = extras.reduce((t, e) => t + e.amountCents, 0);
+    const expensesCents = expenses.reduce((t, e) => t + e.amountCents, 0);
+    const earningsCents = completed.reduce((t, o) => t + (o.payCents || 0), 0) + extrasCents;
     const byPlatform = {};
     for (const o of completed) {
       const p = byPlatform[o.platform] = byPlatform[o.platform] || { earningsCents: 0, completed: 0 };
       p.earningsCents += o.payCents || 0; p.completed++;
     }
+    for (const e of extras) {
+      if (!e.platform) continue;
+      const p = byPlatform[e.platform] = byPlatform[e.platform] || { earningsCents: 0, completed: 0 };
+      p.earningsCents += e.amountCents;
+    }
     const miles = milesIn(shifts, a, b);
     const visits = storeVisits(input.trips).filter(v => ms(v.arrivedAt) >= a && ms(v.arrivedAt) < b);
     const finished = visits.filter(v => v.seconds !== null && !v.censored);
     return {
-      from, to, earningsCents, byPlatform,
+      from, to, earningsCents, byPlatform, extrasCents, expensesCents, netCents: earningsCents - expensesCents,
+      entries: entries.map(e => ({ id: e.id, kind: e.kind, at: e.at, amountCents: e.amountCents, category: e.category || null,
+        platform: e.platform || null, note: e.note || null })),
       completed: completed.length,
       unassigned: orders.filter(o => o.ended === 'unassigned').length,
       cancelled: orders.filter(o => typeof o.ended === 'string' && o.ended.indexOf('cancelled') === 0).length,
@@ -598,7 +612,10 @@
       'shifts.csv': toCSV(['started_at', 'ended_at', 'earnings', 'doordash', 'uber_eats', 'grubhub', 'online_hours', 'active_hours', 'idle_hours',
         'total_miles', 'order_miles', 'to_pickup_miles', 'delivery_miles', 'deadhead_miles', 'drive_back_miles', 'reposition_miles',
         'per_online_hour', 'per_active_hour', 'per_mile', 'completed', 'unassigned', 'cancelled', 'avg_restaurant_wait_minutes', 'goal'], shifts),
-      'restaurants.csv': toCSV(['id', 'name', 'other_names', 'apps', 'offers', 'visits', 'latitude', 'longitude'], restaurants)
+      'restaurants.csv': toCSV(['id', 'name', 'other_names', 'apps', 'offers', 'visits', 'latitude', 'longitude'], restaurants),
+      'expenses-and-other-earnings.csv': toCSV(['date', 'kind', 'category', 'app', 'amount', 'note'],
+        (data.entries || []).map(e => ({ date: t(e.at), kind: e.kind === 'expense' ? 'expense' : 'tip/bonus/other', category: e.category,
+          app: e.platform, amount: dollars(e.amountCents), note: e.note })))
     };
   }
 

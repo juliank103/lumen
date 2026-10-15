@@ -200,23 +200,61 @@ struct ShiftEditor: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var shifts = ShiftStore.shared
     let shift: Shift?
+    /// The day picked in the ＋ sheet, for a new shift.
+    var day: Date? = nil
+    /// Inside the ＋ sheet's navigation (no own NavigationStack); `onDone` closes the sheet.
+    var embedded = false
+    var onDone: (() -> Void)? = nil
     @State private var start = Date()
     @State private var end = Date()
     @State private var confirmDelete = false
+    /// Running shift: it already ended at `end` (user, Oct 15: "edit the time a shift ended").
+    @State private var endRunning = false
+    @State private var orderMilesText = ""
+    @State private var otherMilesText = ""
 
     private var isRunning: Bool { shift != nil && shift?.id == shifts.current?.id }
 
     var body: some View {
-        NavigationStack {
+        if embedded { form } else { NavigationStack { form } }
+    }
+
+    private func close() { if let onDone { onDone() } else { dismiss() } }
+
+    private func miles(_ text: String) -> Double {
+        max(0, Double(text.replacingOccurrences(of: ",", with: ".").trimmingCharacters(in: .whitespaces)) ?? 0)
+    }
+
+    private var form: some View {
             Form {
                 Section {
                     DatePicker("Started", selection: $start, in: ...Date())
-                    if !isRunning {
+                    if isRunning {
+                        Toggle("It already ended", isOn: $endRunning)
+                    }
+                    if !isRunning || endRunning {
                         DatePicker("Ended", selection: $end, in: start...Date())
                     }
                 } footer: {
-                    Text(isRunning ? "The shift is still running; it ends by itself or with End shift."
-                         : "Online time: " + ShiftFormat.duration(Int(max(0, end.timeIntervalSince(start)))) + ". Miles aren't changed.")
+                    Text(isRunning && !endRunning ? "The shift is still running; it ends by itself or with End shift."
+                         : "Online time: " + ShiftFormat.duration(Int(max(0, end.timeIntervalSince(start)))) + "."
+                         + (shift == nil ? "" : " Miles aren't changed."))
+                }
+                if shift == nil {
+                    Section {
+                        HStack {
+                            Text("Miles on orders")
+                            Spacer()
+                            TextField("0", text: $orderMilesText).keyboardType(.decimalPad).multilineTextAlignment(.trailing).frame(maxWidth: 100)
+                        }
+                        HStack {
+                            Text("Other miles")
+                            Spacer()
+                            TextField("0", text: $otherMilesText).keyboardType(.decimalPad).multilineTextAlignment(.trailing).frame(maxWidth: 100)
+                        }
+                    } footer: {
+                        Text("Other miles: driving back and repositioning (deadhead).")
+                    }
                 }
                 if shift != nil && !isRunning {
                     Section {
@@ -224,35 +262,43 @@ struct ShiftEditor: View {
                     }
                 }
             }
-            .navigationTitle(shift == nil ? "Add a shift" : "Edit shift")
+            .navigationTitle(shift == nil ? "Add miles and time" : "Edit shift")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                if !embedded {
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        if let shift { shifts.updateShift(shift.id, start: start, end: isRunning ? nil : end) }
-                        else { shifts.addShift(start: start, end: end) }
-                        dismiss()
+                        if let shift {
+                            shifts.updateShift(shift.id, start: start, end: isRunning ? nil : end)
+                            if isRunning && endRunning { shifts.end(at: end, exact: true) }
+                        } else {
+                            shifts.addShift(start: start, end: end, orderMiles: miles(orderMilesText), otherMiles: miles(otherMilesText))
+                        }
+                        close()
                     }
-                    .disabled(!isRunning && end <= start)
+                    .disabled((!isRunning || endRunning) && end <= start)
                 }
             }
             .confirmationDialog("Delete this shift?", isPresented: $confirmDelete) {
                 Button("Delete shift", role: .destructive) {
                     if let shift { shifts.deleteShift(shift.id) }
-                    dismiss()
+                    close()
                 }
             }
             .onAppear {
                 if let shift {
                     start = shift.startedAt
                     end = shift.endedAt ?? Date()
+                } else if let day, !Calendar.current.isDateInToday(day) {
+                    start = Calendar.current.date(bySettingHour: 17, minute: 0, second: 0, of: day) ?? day
+                    end = start.addingTimeInterval(4 * 3600)
                 } else {
                     end = Date()
                     start = end.addingTimeInterval(-4 * 3600)
                 }
             }
-        }
     }
 }
 

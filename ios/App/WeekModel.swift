@@ -45,6 +45,20 @@ struct RangeMetrics: Decodable, Equatable {
     let perActiveHourCents: Int?
     let perMileCents: Int?
     let restaurantWait: Wait
+    /// Added by hand (＋): tips/bonuses/other earnings (already in earningsCents), expenses, and net.
+    struct EntryRow: Decodable, Equatable, Identifiable {
+        let id: String
+        let kind: String
+        let at: String
+        let amountCents: Int
+        let category: String?
+        let platform: String?
+        let note: String?
+    }
+    let extrasCents: Int?
+    let expensesCents: Int?
+    let netCents: Int?
+    let entries: [EntryRow]?
     let orders: [OrderRow]?
     let shifts: [ShiftRef]?
     let platforms: [LensRow]?
@@ -168,7 +182,7 @@ final class WeekModel: ObservableObject {
         let dayRanges = (0..<7).map { ["start": iso.string(from: dates[$0]), "end": iso.string(from: dates[$0 + 1])] }
         let input = "{\"shifts\":\(ShiftEngine.json(encodable: shifts)),\"trips\":\(ShiftEngine.json(encodable: trips)),"
             + "\"offers\":\(ShiftEngine.json(offerRows)),\"restaurants\":\(RestaurantStore.shared.databaseJSON),"
-            + "\"days\":\(ShiftEngine.json(dayRanges)),"
+            + "\"days\":\(ShiftEngine.json(dayRanges)),\"entries\":\(EntryStore.shared.json),"
             + "\"previous\":\(ShiftEngine.json(["start": iso.string(from: previousStart), "end": iso.string(from: start)])),"
             + "\"now\":\(ShiftEngine.json(iso.string(from: now))),\"offsetMinutes\":\(ShiftEngine.offsetMinutes)}"
         let decoded = ShiftEngine.decode(WeekStats.self, ShiftEngine.call("weekStatsJSON", [input]))

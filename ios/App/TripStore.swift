@@ -296,6 +296,24 @@ final class TripStore: ObservableObject {
     }
 
     /// The order ended early (first-class outcome, addendum §2/§5); the reason only as the driver gave it.
+    /// An order added by hand that's already delivered (user, Oct 15): straight into history, timed accepted → delivered.
+    func recordCompleted(_ info: TripOfferInfo, acceptedAt: Date, deliveredAt: Date) {
+        guard trip(for: info.offerId) == nil else { return }
+        let before = active, historyCount = history.count
+        let end = min(Date(), max(deliveredAt, acceptedAt.addingTimeInterval(60)))
+        let order = Trip.Order(offerId: info.offerId, platform: info.platform, payCents: info.payCents, merchant: info.merchant,
+                               stores: info.stores, dropoffs: info.dropoffs, acceptedAt: acceptedAt, ended: "completed", endedAt: end,
+                               predictedHourlyCents: info.predictedHourlyCents, predictedTripMinutes: info.predictedTripMinutes,
+                               predictedReturnMinutes: info.predictedReturnMinutes)
+        let trip = Trip(id: "trip-\(Int(acceptedAt.timeIntervalSince1970))-manual", startedAt: acceptedAt, orders: [order], steps: [], endedAt: end)
+        history.append(trip)
+        let events = [event("accepted", info.offerId, acceptedAt, trip.id, ["source": "manual_entry", "offer": ["platform": info.platform, "payCents": info.payCents] as [String: Any]]),
+                      event("completed", info.offerId, end, trip.id, ["source": "manual_entry", "payCents": info.payCents])]
+        commit(before: before, historyCount: historyCount, events: events)
+        ShiftStore.shared.recomputeFinals(near: acceptedAt)
+        ShiftStore.shared.refreshMetrics()
+    }
+
     func end(_ offerId: String, _ ending: Ending, at now: Date = Date()) {
         guard var trip = active, let index = trip.orders.firstIndex(where: { $0.offerId == offerId && $0.ended == nil }) else { return }
         let before = active, historyCount = history.count
