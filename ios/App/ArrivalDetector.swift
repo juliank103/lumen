@@ -1,13 +1,17 @@
 import Foundation
 import CoreLocation
 import MapKit
+import UIKit
 
 /// Ticks trip steps from the phone's position (review item: fewer taps). Pure logic, fed one location at a time:
 /// - Arrived at a store: within 120 m of the store's known spot for 20 s (not just passing or at a red light).
 /// - Left a store: more than 200 m from where the arrival was ticked (or the store's spot).
-/// - Arrived at a drop-off: once all of that order's stores are left, stopped (within 40 m) for 75 s, at least 400 m
-///   from the stores.
+/// - Arrived at a drop-off: once all of that order's stores are left, stopped (within 40 m) for 150 s, at least 1.2 km
+///   from the stores' known spots and 4 minutes after leaving the last one.
 /// - Delivered: moving again, more than 150 m from where the drop-off arrival happened.
+/// Field fix (user, Oct 16 shift): a 75-second stop 400 m out — a long red light just after the restaurant — counted as
+/// the drop-off, and driving on then "delivered" the order. Drop-offs now need a longer, farther, later stop, and while
+/// the screen is being read they come only from the delivery app's screens (`dropoffs: false`).
 /// The drop-off spot is held in memory only, never stored. The same step never fires twice within 10 minutes, so an
 /// Undo isn't immediately repeated.
 struct ArrivalDetector {
@@ -15,8 +19,9 @@ struct ArrivalDetector {
     static let storeSeconds: TimeInterval = 20
     static let leftStoreDistance: CLLocationDistance = 200
     static let dwellRadius: CLLocationDistance = 40
-    static let dwellSeconds: TimeInterval = 75
-    static let dropoffMinFromStore: CLLocationDistance = 400
+    static let dwellSeconds: TimeInterval = 150
+    static let dropoffMinFromStore: CLLocationDistance = 1200
+    static let dropoffMinAfterLeaving: TimeInterval = 240
     static let deliveredDistance: CLLocationDistance = 150
 
     private var dwellCenter: CLLocation?
@@ -27,7 +32,8 @@ struct ArrivalDetector {
 
     /// The step the position shows has happened, if any. `storeSpots`: action id of each pending store arrival → the
     /// store's location (known restaurant or Apple Maps search).
-    mutating func next(at location: CLLocation, trip: Trip, storeSpots: [String: CLLocation]) -> TripAction? {
+    /// `dropoffs`: also detect drop-off arrival and delivery (off while the delivery app's screens are being read).
+    mutating func next(at location: CLLocation, trip: Trip, storeSpots: [String: CLLocation], dropoffs: Bool = true) -> TripAction? {
         let now = location.timestamp
         fired = fired.filter { now.timeIntervalSince($0.value) < 600 }
         trackDwell(location)
@@ -39,7 +45,7 @@ struct ArrivalDetector {
             if let spot, location.distance(from: spot) > Self.leftStoreDistance { return fire(action, now) }
         }
         // Moving away from a drop-off.
-        for action in actions where action.kind == .delivered {
+        for action in actions where action.kind == .delivered && dropoffs {
             let key = action.id
             if dropoffSpots[key] == nil { dropoffSpots[key] = dwellCenter ?? location }
             if let spot = dropoffSpots[key], location.distance(from: spot) > Self.deliveredDistance, location.speed > 2 {
@@ -61,9 +67,12 @@ struct ArrivalDetector {
             }
         }
         // Stopping at a drop-off.
-        if let since = dwellSince, now.timeIntervalSince(since) >= Self.dwellSeconds, let center = dwellCenter {
+        if dropoffs, let since = dwellSince, now.timeIntervalSince(since) >= Self.dwellSeconds, let center = dwellCenter {
             for action in actions where action.kind == .arrivedDropoff {
+                // Where the stores are must be known (no guessing from any stop), and the stop must come well after leaving.
                 let stores = storeLocations(trip, action.offerId, storeSpots)
+                let left = trip.steps.filter { $0.kind == .leftStore && $0.offerId == action.offerId }.map(\.at).max()
+                guard !stores.isEmpty, let left, now.timeIntervalSince(left) >= Self.dropoffMinAfterLeaving else { continue }
                 if stores.allSatisfy({ center.distance(from: $0) >= Self.dropoffMinFromStore }) {
                     let delivered = TripAction(kind: .delivered, offerId: action.offerId, stop: action.stop, label: "")
                     dropoffSpots[delivered.id] = center
@@ -119,7 +128,9 @@ final class AutoSteps {
             guard let order = trip.orders.first(where: { $0.offerId == action.offerId }), action.stop < order.stores.count else { continue }
             if let spot = spot(for: order.stores[action.stop], near: location) { spots[action.id] = spot }
         }
-        if let action = detector.next(at: location, trip: trip, storeSpots: spots) {
+        // While the screen is read, the delivery app's own screens say when the drop-off and delivery happen.
+        let reading = UIScreen.main.isCaptured
+        if let action = detector.next(at: location, trip: trip, storeSpots: spots, dropoffs: !reading) {
             TripStore.shared.perform(action, at: location.timestamp, auto: true)
         }
     }

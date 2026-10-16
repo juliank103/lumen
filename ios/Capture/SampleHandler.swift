@@ -35,6 +35,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
     private var sentStatus: String?
     private var retriedFingerprint: String?
     private var firstSeen: [String: Date] = [:]
+    private var lastOfferAt = Date.distantPast
     private var creditTimer: DispatchSourceTimer?
 
     override init() {
@@ -191,6 +192,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
             }
         }
         framesWithoutOffer = 0
+        lastOfferAt = capturedAt
         status.offersRead += 1
         if firstSeen[summary.fingerprint] == nil { firstSeen[summary.fingerprint] = capturedAt }
         if firstSeen.count > 200 { firstSeen = firstSeen.filter { capturedAt.timeIntervalSince($0.value) < 3600 } }
@@ -417,7 +419,10 @@ final class SampleHandler: RPBroadcastSampleHandler {
     /// store, heading to the customer, …). A state is sent to the app once it's seen twice in a row, and only when it
     /// changes. OCR text is dropped right after; only the app and state leave this function.
     private func readOrderState(_ lowerLines: [OfferReader.Line], frame: CIImage, at now: Date) {
-        guard let reader, now.timeIntervalSince(lastStatusRead) >= 3 else { return }
+        // Every 2 s for 3 minutes after an offer (the pickup screen right after Accept can be on screen only briefly
+        // before the driver switches to their own maps), else every 3 s.
+        let interval: TimeInterval = now.timeIntervalSince(lastOfferAt) < 180 ? 2 : 3
+        guard let reader, now.timeIntervalSince(lastStatusRead) >= interval else { return }
         lastStatusRead = now
         let upper = recognize(frame, top: 0, bottom: 1 - Double(Self.readFraction), level: .fast, maxWidth: 900)
         guard let status = reader.status(upper + lowerLines), LifecycleSignal.states.contains(status.state) else {
@@ -425,7 +430,11 @@ final class SampleHandler: RPBroadcastSampleHandler {
             return
         }
         let key = status.platform + "." + status.state
-        guard key == candidateStatus else { candidateStatus = key; return }
+        // Pickup screens are specific enough to act on at the first read (they're the evidence of an accept, Oct 16
+        // field miss); other states must be read twice in a row.
+        let immediate = status.state == "heading_to_store" || status.state == "at_store"
+        guard key == candidateStatus || immediate else { candidateStatus = key; return }
+        candidateStatus = key
         guard key != sentStatus else { return }
         sentStatus = key
         LifecycleSignal(platform: status.platform, state: status.state).post()

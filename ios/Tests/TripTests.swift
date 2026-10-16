@@ -95,12 +95,33 @@ final class TripTests: XCTestCase {
         trip.steps.append(step(.arrivedStore, "a", 0, 0, lat: 39.8400, lon: -98.5400))
         XCTAssertEqual(detector.next(at: at(39.8430, -98.5400, seconds: 300, speed: 10), trip: trip, storeSpots: [:])?.kind, .leftStore)
         trip.steps.append(step(.leftStore, "a", 0, 5))
-        // Parked about 2 km away for 80 seconds.
+        // Parked about 2 km away: not yet at 90 seconds, the drop-off at 160.
         XCTAssertNil(detector.next(at: at(39.8580, -98.5400, seconds: 900), trip: trip, storeSpots: [:]))
-        XCTAssertEqual(detector.next(at: at(39.8580, -98.5401, seconds: 985), trip: trip, storeSpots: [:])?.kind, .arrivedDropoff)
-        trip.steps.append(step(.arrivedDropoff, "a", 0, 16.4))
-        XCTAssertNil(detector.next(at: at(39.8581, -98.5401, seconds: 1050), trip: trip, storeSpots: [:]))
-        XCTAssertEqual(detector.next(at: at(39.8600, -98.5400, seconds: 1100, speed: 8), trip: trip, storeSpots: [:])?.kind, .delivered)
+        XCTAssertNil(detector.next(at: at(39.8580, -98.5401, seconds: 990), trip: trip, storeSpots: [:]))
+        XCTAssertEqual(detector.next(at: at(39.8580, -98.5401, seconds: 1060), trip: trip, storeSpots: [:])?.kind, .arrivedDropoff)
+        trip.steps.append(step(.arrivedDropoff, "a", 0, 17.7))
+        XCTAssertNil(detector.next(at: at(39.8581, -98.5401, seconds: 1100), trip: trip, storeSpots: [:]))
+        XCTAssertEqual(detector.next(at: at(39.8600, -98.5400, seconds: 1150, speed: 8), trip: trip, storeSpots: [:])?.kind, .delivered)
+    }
+
+    func testARedLightAfterTheStoreIsNotTheDropoff() {
+        // Field bug (Oct 16): stopped at a light ~1 km out right after leaving, then "delivered" on driving away.
+        var detector = ArrivalDetector()
+        var trip = Trip(id: "t", startedAt: t0, orders: [order("a", stores: ["Five Guys"])], steps: [], endedAt: nil)
+        trip.steps.append(step(.arrivedStore, "a", 0, 0, lat: 39.8400, lon: -98.5400))
+        trip.steps.append(step(.leftStore, "a", 0, 5))
+        XCTAssertNil(detector.next(at: at(39.8490, -98.5400, seconds: 360), trip: trip, storeSpots: [:]))
+        XCTAssertNil(detector.next(at: at(39.8490, -98.5401, seconds: 540), trip: trip, storeSpots: [:]))
+        XCTAssertNil(detector.next(at: at(39.8530, -98.5400, seconds: 560, speed: 12), trip: trip, storeSpots: [:]))
+    }
+
+    func testNoDropoffFromGPSWhileTheScreenIsRead() {
+        var detector = ArrivalDetector()
+        var trip = Trip(id: "t", startedAt: t0, orders: [order("a", stores: ["Five Guys"])], steps: [], endedAt: nil)
+        trip.steps.append(step(.arrivedStore, "a", 0, 0, lat: 39.8400, lon: -98.5400))
+        trip.steps.append(step(.leftStore, "a", 0, 5))
+        XCTAssertNil(detector.next(at: at(39.8580, -98.5400, seconds: 900), trip: trip, storeSpots: [:], dropoffs: false))
+        XCTAssertNil(detector.next(at: at(39.8580, -98.5401, seconds: 1200), trip: trip, storeSpots: [:], dropoffs: false))
     }
 
     func testAnUndoneStepIsNotRepeatedRightAway() {

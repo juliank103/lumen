@@ -23,7 +23,9 @@ final class LifecycleSync {
             if step(.leftStore, p, now, inferred: false) { return }   // Off to the next store of a multi-store order.
             if pending(.arrivedStore, p) == nil { acceptLatestOffer(p, now) }
         case "at_store":
-            if pending(.arrivedStore, p) == nil && pending(.leftStore, p) == nil { acceptLatestOffer(p, now) }
+            // At the store with nothing pending: the accept wasn't seen (e.g. the driver went straight to their own maps);
+            // the drive there can take a while, so look back 30 minutes.
+            if pending(.arrivedStore, p) == nil && pending(.leftStore, p) == nil { acceptLatestOffer(p, now, within: 1800) }
             step(.arrivedStore, p, now, inferred: false)
         case "heading_to_customer":
             fillPickup(p, now)
@@ -65,9 +67,9 @@ final class LifecycleSync {
         return true
     }
 
-    private func acceptLatestOffer(_ platform: String, _ now: Date) {
+    private func acceptLatestOffer(_ platform: String, _ now: Date, within window: TimeInterval = 600) {
         guard let offer = model?.offers.last(where: { offer in
-            offer.platform == platform && now.timeIntervalSince(offer.seenAt) < 600
+            offer.platform == platform && now.timeIntervalSince(offer.seenAt) < window
                 && TripStore.shared.trip(for: offer.offerId ?? offer.id) == nil && !DemoData.isDemo(offer.offerId)
         }) else { return }
         TripStore.shared.accept(TripOfferInfo(offer), at: now, source: "screen")
