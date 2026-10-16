@@ -1,4 +1,5 @@
 import SwiftUI
+import Charts
 
 /// Stats by week, laid out like Gridwise's week page (user's screen recording, Oct 15): ‹ calendar › in the top bar,
 /// the week's dates, a card of metric tiles that also pick what the Mon–Sun chart shows, an Efficiency strip, the days
@@ -10,6 +11,7 @@ struct StatsTab: View {
     @ObservedObject private var restaurants = RestaurantStore.shared
     @State private var metric = ChartMetric.earnings
     @State private var selectedDay: Int?
+    @State private var chartByApp = false
     @State private var editingGoal = false
     @State private var confirmEnd = false
     @State private var pickingDate = false
@@ -38,18 +40,28 @@ struct StatsTab: View {
                         }
                         VStack(spacing: 0) {
                             MetricTiles(week: stats.week, selection: $metric)
-                            WeekBarChart(days: stats.days, dates: week.days, metric: metric, today: week.todayIndex, selected: $selectedDay)
-                                .padding(.horizontal, 16).padding(.top, 18)
-                            if let index = selectedDay, index < stats.days.count, index < week.days.count {
-                                SelectedDayRow(day: stats.days[index], date: week.days[index])
-                                    .padding(.horizontal, 16).padding(.top, 6)
+                            Picker("Chart", selection: $chartByApp) {
+                                Text("By day").tag(false)
+                                Text("By app").tag(true)
+                            }
+                            .pickerStyle(.segmented)
+                            .padding(.horizontal, 16).padding(.top, 14)
+                            if chartByApp {
+                                AppShareDonut(week: stats.week).padding(.horizontal, 16).padding(.top, 18)
+                            } else {
+                                WeekBarChart(days: stats.days, dates: week.days, metric: metric, today: week.todayIndex, selected: $selectedDay)
+                                    .padding(.horizontal, 16).padding(.top, 18)
+                                if let index = selectedDay, index < stats.days.count, index < week.days.count {
+                                    SelectedDayRow(day: stats.days[index], date: week.days[index])
+                                        .padding(.horizontal, 16).padding(.top, 6)
+                                }
                             }
                         }
                         .padding(.bottom, 14)
                         .background(Theme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                         EfficiencyStrip(week: stats.week, selection: $metric)
                         ByDayList(stats: stats, dates: week.days)
-                        LensCard(stats: stats)
+                        AppShareList(week: stats.week)
                         if let first = week.days.first, let end = Calendar.current.date(byAdding: .day, value: 7, to: first) {
                             AccuracyCard(from: first, to: end)
                         }
@@ -178,13 +190,17 @@ struct HistoryRow: View {
 // MARK: Metric tiles (they pick the chart's metric)
 
 enum ChartMetric: String, CaseIterable, Identifiable {
-    case earnings = "Earnings", hours = "Hours online", miles = "Miles", orders = "Orders", active = "On deliveries",
+    case earnings = "Earnings", expenses = "Expenses", net = "Net income", hours = "Hours", miles = "Miles",
+         deduction = "Deduction", orders = "Orders", active = "On deliveries",
          idle = "Idle", deadhead = "Deadhead", wait = "Store wait", perHour = "Per hour", perMile = "Per mile"
     var id: String { rawValue }
 
     var icon: String {
         switch self {
         case .earnings: return "dollarsign.circle"
+        case .expenses: return "minus.circle"
+        case .net: return "banknote"
+        case .deduction: return "doc.text"
         case .hours: return "hourglass"
         case .miles: return "gauge.with.dots.needle.50percent"
         case .orders: return "bag"
@@ -200,6 +216,9 @@ enum ChartMetric: String, CaseIterable, Identifiable {
     func value(_ m: RangeMetrics) -> Double {
         switch self {
         case .earnings: return Double(m.earningsCents) / 100
+        case .expenses: return Double(m.expensesCents ?? 0) / 100
+        case .net: return Double(m.netCents ?? m.earningsCents) / 100
+        case .deduction: return m.miles.total * Double(Self.deductionCentsPerMile) / 100
         case .perHour: return Double(m.perOnlineHourCents ?? 0) / 100
         case .perMile: return Double(m.perMileCents ?? 0) / 100
         case .hours: return Double(m.onlineSeconds) / 3600
@@ -216,6 +235,9 @@ enum ChartMetric: String, CaseIterable, Identifiable {
     func tile(_ m: RangeMetrics) -> String {
         switch self {
         case .earnings: return ShiftFormat.money(m.earningsCents)
+        case .expenses: return ShiftFormat.money(m.expensesCents ?? 0)
+        case .net: return ShiftFormat.money(m.netCents ?? m.earningsCents)
+        case .deduction: return ShiftFormat.money(Int((m.miles.total * Double(Self.deductionCentsPerMile)).rounded()))
         case .perHour: return ShiftFormat.rate(m.perOnlineHourCents, "hr")
         case .perMile: return ShiftFormat.rate(m.perMileCents, "mi")
         case .hours: return String(format: "%.1f", Double(m.onlineSeconds) / 3600)
@@ -231,7 +253,7 @@ enum ChartMetric: String, CaseIterable, Identifiable {
     /// The short label over a bar.
     func bar(_ v: Double) -> String {
         switch self {
-        case .earnings: return "$\(Int(v.rounded()))"
+        case .earnings, .expenses, .net, .deduction: return "$\(Int(v.rounded()))"
         case .perHour: return "$\(Int(v))"
         case .perMile: return String(format: "$%.2f", v)
         case .hours, .idle, .active: return String(format: "%.1f", v)
@@ -242,14 +264,18 @@ enum ChartMetric: String, CaseIterable, Identifiable {
     }
 
     /// Money metrics get the accent color (like Gridwise's green earnings bars); the rest are gray.
-    var isMoney: Bool { [ChartMetric.earnings, .perHour, .perMile].contains(self) }
+    var isMoney: Bool { [ChartMetric.earnings, .net, .deduction, .expenses, .perHour, .perMile].contains(self) }
+
+    /// Mileage deduction rate (user, Oct 16, like Gridwise: $0.67 per mile driven); changeable in Account.
+    static var deductionCentsPerMile: Int { UserDefaults.standard.object(forKey: "mileageDeductionCents") as? Int ?? 67 }
 }
 
 /// The week's totals as a 2-column grid of tiles; the selected tile is highlighted and drives the chart below.
 struct MetricTiles: View {
     let week: RangeMetrics
     @Binding var selection: ChartMetric
-    private let metrics: [ChartMetric] = [.earnings, .hours, .miles, .orders, .deadhead, .wait]
+    // Like Gridwise (user, Oct 16): earnings, expenses, net, hours, miles, the mileage deduction, orders, deadhead.
+    private let metrics: [ChartMetric] = [.earnings, .expenses, .net, .hours, .miles, .deduction, .orders, .deadhead]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -292,10 +318,8 @@ struct MetricTiles: View {
         case .orders:
             let lost = week.unassigned + week.cancelled
             return lost > 0 ? "Orders · \(lost) ended early" : "Orders"
-        case .hours: return String(format: "Online · %.1f on orders", Double(week.activeSeconds) / 3600)
-        case .earnings:
-            if let expenses = week.expensesCents, expenses > 0, let net = week.netCents { return "Earnings · " + ShiftFormat.money(net) + " net" }
-            return "Earnings"
+        case .hours: return "Hours"
+        case .deduction: return String(format: "Deduction · %d¢/mi", ChartMetric.deductionCentsPerMile)
         case .idle: return "Idle hours"
         case .active: return "Hours on deliveries"
         case .deadhead: return "Deadhead miles"
@@ -776,6 +800,90 @@ struct LensCard: View {
         case .area: return stats.lenses.area
         case .restaurant: return stats.lenses.restaurant
         case .period: return stats.lenses.period
+        }
+    }
+}
+
+// MARK: Share by app (user, Oct 16: like Gridwise's "By Work" — a percentage breakdown by app instead of hourly lenses)
+
+private struct AppShare: Identifiable {
+    let platform: String
+    let cents: Int
+    let orders: Int
+    let share: Double
+    var id: String { platform }
+}
+
+private func appShares(_ week: RangeMetrics) -> [AppShare] {
+    let total = max(1, week.byPlatform.values.reduce(0) { $0 + $1.earningsCents })
+    let known = ["doordash", "uber_eats", "grubhub"]
+    let keys = known + week.byPlatform.keys.filter { !known.contains($0) }.sorted()
+    return keys.map { key in
+        let app = week.byPlatform[key]
+        return AppShare(platform: key, cents: app?.earningsCents ?? 0, orders: app?.completed ?? 0,
+                        share: Double(app?.earningsCents ?? 0) / Double(total))
+    }
+}
+
+func appColor(_ platform: String) -> Color {
+    switch platform {
+    case "doordash": return Color(red: 1.0, green: 0.19, blue: 0.03)
+    case "uber_eats": return Color(red: 0.02, green: 0.76, blue: 0.40)
+    case "grubhub": return Color(red: 1.0, green: 0.50, blue: 0.0)
+    default: return .gray
+    }
+}
+
+/// The week's earnings as a ring, one color per app.
+struct AppShareDonut: View {
+    let week: RangeMetrics
+    var body: some View {
+        let shares = appShares(week).filter { $0.cents > 0 }
+        ZStack {
+            if shares.isEmpty {
+                Circle().stroke(Color.primary.opacity(0.1), lineWidth: 18).frame(width: 150, height: 150)
+            } else {
+                Chart(shares) { share in
+                    SectorMark(angle: .value("Earnings", share.cents), innerRadius: .ratio(0.8), angularInset: 1.5)
+                        .foregroundStyle(appColor(share.platform))
+                }
+                .chartLegend(.hidden)
+            }
+            VStack(spacing: 2) {
+                Text(ShiftFormat.money(week.earningsCents)).font(.title3.weight(.semibold)).monospacedDigit()
+                Text("\(week.completed) order\(week.completed == 1 ? "" : "s")").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .frame(height: 180)
+        .padding(.bottom, 4)
+    }
+}
+
+/// Each app's share of the week's earnings, its dollars, and its orders.
+struct AppShareList: View {
+    let week: RangeMetrics
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("By app").font(.headline).foregroundStyle(.secondary)
+            VStack(spacing: 0) {
+                let shares = appShares(week)
+                ForEach(Array(shares.enumerated()), id: \.element.id) { index, share in
+                    HStack(spacing: 12) {
+                        RoundedRectangle(cornerRadius: 4, style: .continuous).fill(appColor(share.platform)).frame(width: 18, height: 18)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(Theme.appName(share.platform))
+                            Text("\(share.orders) order\(share.orders == 1 ? "" : "s")").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Text("\(Int((share.share * 100).rounded()))%").foregroundStyle(.secondary).monospacedDigit()
+                        Text("·").foregroundStyle(.secondary)
+                        Text(ShiftFormat.money(share.cents)).font(.body.weight(.semibold)).monospacedDigit()
+                    }
+                    .padding(.vertical, 12).padding(.horizontal, 14)
+                    if index < shares.count - 1 { Divider().padding(.leading, 44) }
+                }
+            }
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
     }
 }

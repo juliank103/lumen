@@ -6,6 +6,9 @@ struct AccountTab: View {
     @EnvironmentObject private var model: AppModel
     @ObservedObject private var shifts = ShiftStore.shared
     @AppStorage("vehicleCostCentsPerMile") private var costPerMile = 0
+    @AppStorage("mileageDeductionCents") private var deductionCents = 67
+    @State private var editingDeduction = false
+    @State private var deductionText = ""
     @AppStorage(AutoSteps.enabledKey) private var autoSteps = true
     @AppStorage(AudioCues.enabledKey) private var audioCues = true
     @State private var editingGoal = false
@@ -54,6 +57,10 @@ struct AccountTab: View {
                         row("Vehicle cost per mile", costPerMile > 0 ? "\(costPerMile)¢" : "Not set")
                     }
                     .foregroundStyle(.primary)
+                    Button { deductionText = String(deductionCents); editingDeduction = true } label: {
+                        row("Mileage deduction", "\(deductionCents)¢ per mile")
+                    }
+                    .foregroundStyle(.primary)
                 }
                 Section {
                     row("Notifications", model.notificationStatus)
@@ -80,6 +87,13 @@ struct AccountTab: View {
             .navigationTitle("Account")
             .menuButton()
             .goalEditor(isPresented: $editingGoal)
+            .alert("Mileage deduction", isPresented: $editingDeduction) {
+                TextField("Cents per mile, e.g. 67", text: $deductionText).keyboardType(.numberPad)
+                Button("Save") { deductionCents = max(0, min(200, Int(deductionText) ?? 67)) }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("The Deduction tile on Earnings is your miles times this rate (the IRS standard mileage rate).")
+            }
             .alert("Vehicle cost per mile", isPresented: $editingCost) {
                 TextField("Cents, e.g. 30", text: $costText).keyboardType(.numberPad)
                 Button("Save") { costPerMile = max(0, min(200, Int(costText) ?? 0)) }
