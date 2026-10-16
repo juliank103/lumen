@@ -27,10 +27,19 @@ final class BroadcastLauncher {
 
     let picker: RPSystemBroadcastPickerView = {
         let picker = RPSystemBroadcastPickerView(frame: CGRect(x: 0, y: 0, width: 44, height: 44))
-        picker.preferredExtension = Bundle.main.object(forInfoDictionaryKey: "CaptureExtensionIdentifier") as? String
+        picker.preferredExtension = BroadcastLauncher.extensionIdentifier
         picker.showsMicrophoneButton = false
         return picker
     }()
+
+    /// The installed reader's real bundle ID. AltStore re-signs with its own IDs (team suffix), so the ID written at
+    /// build time doesn't match and iOS showed every broadcast app (Photos ticked, a list that wouldn't scroll — user,
+    /// Oct 16). Read it from the bundled extension instead; the build-time value is the fallback.
+    static var extensionIdentifier: String? {
+        if let url = Bundle.main.builtInPlugInsURL?.appendingPathComponent("CaptureProbe.appex"),
+           let id = Bundle(url: url)?.bundleIdentifier { return id }
+        return Bundle.main.object(forInfoDictionaryKey: "CaptureExtensionIdentifier") as? String
+    }
 
     func open() {
         guard let button = Self.firstButton(in: picker) else { return }
