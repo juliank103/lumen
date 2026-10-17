@@ -18,7 +18,7 @@ struct TripActivityAttributes: ActivityAttributes {
 
 /// "Next step" from the Live Activity. Runs in the app's process, which records the step like a tap.
 struct TripStepIntent: LiveActivityIntent {
-    static var title: LocalizedStringResource = "Record the next trip step"
+    static var title: LocalizedStringResource = "Record the next order step"
     static var openAppWhenRun = false
 
     @Parameter(title: "Step") var actionId: String
@@ -39,7 +39,7 @@ struct TripStepIntent: LiveActivityIntent {
 
 /// "Undo" from the Live Activity.
 struct TripUndoIntent: LiveActivityIntent {
-    static var title: LocalizedStringResource = "Undo the last trip step"
+    static var title: LocalizedStringResource = "Undo the last order step"
     static var openAppWhenRun = false
 
     init() {}

@@ -83,7 +83,7 @@ struct AddSheet: View {
             }
             .frame(maxWidth: .infinity, minHeight: 116, alignment: .leading)
             .padding(16)
-            .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -192,7 +192,7 @@ struct ManualOfferForm: View {
                     DatePicker("Delivered at", selection: $deliveredAt, in: offeredAt...max(offeredAt, Date()))
                 }
             } footer: {
-                Text(outcome == .ongoing ? "Starts the trip, like tapping Accept." : outcome == .completed
+                Text(outcome == .ongoing ? "Starts the order, like tapping Accept." : outcome == .completed
                      ? "Goes into your history and earnings with these times." : "Kept in your offers only.")
             }
             if let offer = draft, offer.outboundMilliMiles != nil {

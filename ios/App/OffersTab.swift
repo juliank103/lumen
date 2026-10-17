@@ -48,7 +48,7 @@ struct OffersTab: View {
                 if shown.isEmpty {
                     ContentUnavailableView(filter == .all ? "No offers yet" : "Nothing here yet", systemImage: "tray",
                                            description: Text(filter == .all ? "Offers you're shown while reading will appear here."
-                                                             : "Offers you tick as accepted show up here with their time and pace."))
+                                                             : "Orders you take show up here with their time and $/hr."))
                 } else {
                     List {
                         ForEach(days, id: \.day) { group in
@@ -145,7 +145,7 @@ struct OfferDetail: View {
                     Text(summaryLine).font(.subheadline).foregroundStyle(.secondary)
                     VerdictChip(notice: offer.notice, large: true)
                     if TripStore.shared.trip(for: offer.offerId ?? offer.id) != nil {
-                        Text("Lumen's estimate when the offer came in. What it actually earned is under Your trip.")
+                        Text("The verdict when the offer came in. What it really earned is below.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     AcceptButton(offer: offer)
@@ -199,7 +199,7 @@ struct OfferReasoning: View {
                 if offer.confidence < 0.9 { Text("Check this reading against the app").foregroundStyle(.orange) }
             }
             Section("Return and time") {
-                row("Return trip", offer.returnMilliMiles.map { String(format: "%.1f mi", Double($0) / 1000) })
+                row("Drive back", offer.returnMilliMiles.map { String(format: "%.1f mi", Double($0) / 1000) })
                 row("Return worked out from", offer.returnKind.map(Self.kindName))
                 if let note = offer.tripTimeNote { Text(note).font(.subheadline) }
                 if let note = offer.returnNote { Text("Return not calculated: \(note)").font(.subheadline) }
@@ -240,8 +240,8 @@ struct OrderOutcome: View {
         let time = TripFormat.minutes(minutes)
         if order.completed {
             // Pace including the predicted drive back, like the verdict; without a prediction it's the order alone.
-            if let pace = order.paceWithReturnCents, order.predictedReturnMinutes != nil { return "✓ Completed · " + time + " · " + TripFormat.hourly(pace) + " incl. return" }
-            return "✓ Completed · " + time + (order.paceCents.map { " · " + TripFormat.hourly($0) + " order pace" } ?? "")
+            if let pace = order.paceWithReturnCents, order.predictedReturnMinutes != nil { return "✓ Completed · " + time + " · " + TripFormat.hourly(pace) + " with drive back" }
+            return "✓ Completed · " + time + (order.paceCents.map { " · " + TripFormat.hourly($0) } ?? "")
         }
         return (order.ended ?? "Ended").capitalized + " after " + time
     }

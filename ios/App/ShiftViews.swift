@@ -36,7 +36,7 @@ struct ShiftSummaryCard: View {
             }
             .font(.subheadline.weight(.semibold))
             .padding(.horizontal, 16).padding(.vertical, 12)
-            .background(Theme.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         } else if let shift = shifts.current, let m = shifts.metrics {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline) {

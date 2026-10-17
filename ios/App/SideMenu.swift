@@ -28,7 +28,7 @@ enum AppSection: String, CaseIterable, Identifiable {
     }
 
     /// Main destinations above the divider; the rest below it (like DoorDash's Messages/Help).
-    static let main: [AppSection] = [.home, .offers, .earnings, .restaurants, .account]
+    static let main: [AppSection] = [.home, .offers, .earnings, .account]
 }
 
 @MainActor
@@ -102,7 +102,6 @@ struct SideMenu: View {
             Button { menu.isOpen = false; menu.showingHelp = true } label: { label("Help", "questionmark.circle", selected: false) }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("menu.help")
-            row(.diagnostics)
             Spacer()
         }
         .frame(maxHeight: .infinity, alignment: .top)

@@ -10,7 +10,7 @@ struct TripCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("On a trip").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                Text(trip.orders.count > 1 ? "Current orders" : "Current order").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
                 Spacer()
                 Button { store.undo() } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
                     .font(.caption.weight(.bold)).disabled(!store.canUndo)
@@ -24,7 +24,7 @@ struct TripCard: View {
                         VStack(alignment: .trailing, spacing: 0) {
                             Text(TripFormat.hourly(pace)).font(.title3.weight(.heavy))
                                 .foregroundStyle(pace >= 2500 ? Color.green : Color.orange)
-                            Text("pace so far").font(.caption2).foregroundStyle(.secondary)
+                            Text("$/hr so far").font(.caption2).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -141,6 +141,7 @@ struct TripResultSection: View {
     @ObservedObject private var store = TripStore.shared
     let offerId: String
     @State private var editingPay = false
+    @State private var editingOrder: OrderEditTarget?
     @State private var payText = ""
 
     var body: some View {
@@ -151,9 +152,9 @@ struct TripResultSection: View {
                     row(order.completed ? "Took" : "Ended (\(order.ended ?? "?")) after", TripFormat.minutes(minutes))
                     // What the order actually earned (the verdict above is the estimate made when the offer came in).
                     if let pace = order.paceWithReturnCents, order.predictedReturnMinutes != nil {
-                        row("Actual pace incl. drive back", TripFormat.hourly(pace))
+                        row("Real $/hr, with drive back", TripFormat.hourly(pace))
                     } else if let pace = order.paceCents {
-                        row("Actual pace (order only)", TripFormat.hourly(pace))
+                        row("Real $/hr", TripFormat.hourly(pace))
                     }
                 } else {
                     row("Status", "In progress")
@@ -167,7 +168,7 @@ struct TripResultSection: View {
                     }
                 }
                 if order.completed {
-                    Button { payText = String(format: "%.2f", Double(order.payCents) / 100); editingPay = true } label: {
+                    Button { editingOrder = OrderEditTarget(offerId: offerId) } label: {
                         HStack {
                             Text("Pay").foregroundStyle(.primary)
                             Spacer()
@@ -186,12 +187,13 @@ struct TripResultSection: View {
                 }
                 if trip.orders.count > 1, let ended = trip.endedAt {
                     let seconds = ended.timeIntervalSince(trip.startedAt)
-                    row("Whole trip (\(trip.orders.count) orders)", TripFormat.minutes(seconds / 60)
+                    row("All \(trip.orders.count) orders together", TripFormat.minutes(seconds / 60)
                         + (seconds >= 60 && trip.payCents > 0 ? " · " + TripFormat.hourly(Int(Double(trip.payCents) * 3600 / seconds)) : ""))
                 }
             } header: {
-                Text("Your trip")
+                Text("What happened")
             }
+            .sheet(item: $editingOrder) { target in OrderEditor(offerId: target.offerId) }
             .alert("Actual pay", isPresented: $editingPay) {
                 TextField("Dollars", text: $payText).keyboardType(.decimalPad)
                 Button("Save") {
@@ -204,11 +206,11 @@ struct TripResultSection: View {
             if order.completed, order.predictedTripMinutes != nil || order.predictedHourlyCents != nil {
                 Section {
                     compare("Time to deliver", order.predictedTripMinutes.map { "\($0) min" }, order.minutes.map { TripFormat.minutes($0) })
-                    compare("Pace incl. return", order.predictedHourlyCents.map { TripFormat.hourly($0) }, order.paceWithReturnCents.map { TripFormat.hourly($0) })
+                    compare("$/hr with drive back", order.predictedHourlyCents.map { TripFormat.hourly($0) }, order.paceWithReturnCents.map { TripFormat.hourly($0) })
                 } header: {
                     HStack {
                         Text("Predicted vs actual")
-                        InfoNote(title: "Predicted vs actual", text: "Actual pace uses the real time to deliver plus the predicted drive back, so it compares with the verdict's $/hr.")
+                        InfoNote(title: "Predicted vs actual", text: "Real $/hr uses the real time to deliver plus the predicted drive back, so it compares with the verdict's $/hr.")
                     }
                 }
             }

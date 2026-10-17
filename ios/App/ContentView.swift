@@ -114,7 +114,7 @@ struct DashBottomBar: View {
                         .background(Theme.purple, in: Capsule())
                 }
                 .buttonStyle(.plain)
-                .accessibilityHint("Records this step of the trip")
+                .accessibilityHint("Records this step of the order")
             } else {
                 NavigationLink { ReturnDestinationView() } label: {
                     HStack(spacing: 4) {
@@ -177,7 +177,7 @@ struct LastOfferRow: View {
                 .accessibilityLabel("Dismiss offer")
         }
         .padding(12)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 
@@ -194,8 +194,8 @@ struct DashHelp: View {
                 Section("Offer pop-ups") {
                     Text("Settings › Notifications › Screen Sharing › Allow Notifications must be on, or offers only land in Notification Center.")
                 }
-                Section("Trips") {
-                    Text("Tap I accepted this on an offer (or ✓ I accepted on its notification). Then tick each store and drop-off with the big button or from the trip notification. Undo fixes a mistaken tap.")
+                Section("Orders") {
+                    Text("Tap I accepted this on an offer (or ✓ I accepted on its notification). Then tick each store and drop-off with the big button or from the order notification. Undo fixes a mistaken tap.")
                     Text("Swipe an offer sideways or tap ✕ to dismiss it.")
                 }
             }

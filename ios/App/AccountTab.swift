@@ -39,13 +39,13 @@ struct AccountTab: View {
                     if !model.rulesShared { Text("This install has no shared App Group, so the offer reader keeps $1/mi and $25/hr.") }
                 }
                 Section {
-                    Toggle("Tick trip steps automatically", isOn: $autoSteps)
+                    Toggle("Tick order steps automatically", isOn: $autoSteps)
                     Toggle("Say when an order is accepted or delivered", isOn: $audioCues)
                     if audioCues { Button("Test the voice") { AudioCues.shared.test() } }
                 } header: {
                     HStack {
                         Text("Automatic")
-                        InfoNote(title: "Automatic trip steps", text: "Reads DoorDash, Uber Eats, and Grubhub screens (accepted, at the store, heading to the customer, at the drop-off, delivered) and uses your position during a shift. Undo fixes a wrong step.")
+                        InfoNote(title: "Automatic order steps", text: "Reads DoorDash, Uber Eats, and Grubhub screens (accepted, at the store, heading to the customer, at the drop-off, delivered) and uses your position during a shift. Undo fixes a wrong step.")
                     }
                 }
                 Section("Goals and costs") {
@@ -72,6 +72,11 @@ struct AccountTab: View {
                     Text("Permissions")
                 } footer: {
                     Text("Offers pop up only if Settings › Notifications › Screen Sharing › Allow Notifications is on. Location \"Always\" lets Lumen add up your miles during a shift.")
+                }
+                // Polish pass (Oct 16): one job per screen — the store list and diagnostics live here, not in the menu.
+                Section("More") {
+                    NavigationLink("Restaurants") { RestaurantsView() }
+                    NavigationLink("Diagnostics") { DiagnosticsView() }
                 }
                 Section {
                     ExportButton()
@@ -162,7 +167,7 @@ struct DiagnosticsView: View {
             Section("Storage") {
                 row("Shared App Group", model.storageAvailable ? "Available" : "Not shared with this install")
                 row("Return location shared with reader", model.destinationShared ? "Yes" : "No")
-                row("Offer history", OfferJournal.isShared ? "\(model.journalCount) offers" : "Inside the broadcast")
+                row("Offer history", OfferJournal.isShared ? "\(model.journalCount) offers" : "Inside screen reading")
             }
             Section {
                 if model.hasDemoData {

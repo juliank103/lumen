@@ -48,7 +48,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
         NotificationActions.register()
         // Posted before any heavy work, so it arrives even if the extension is terminated later.
         notify(id: "broadcast-started", title: "Lumen is reading offers",
-               body: "Leave the broadcast running. Each offer card will show its verdict here.")
+               body: "Leave screen reading on. Each offer card will show its verdict here.")
         gate.lock(); active = true; gate.unlock()
         router.startLocation()
         // Keep a fresh drive-back measurement for stage-1 verdicts (one Apple Maps route per minute).

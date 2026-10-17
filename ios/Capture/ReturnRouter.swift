@@ -177,7 +177,7 @@ final class ReturnRouter: NSObject, CLLocationManagerDelegate {
                 guard let home else { return completion(nil, "\(self.destinationName) not found in Apple Maps") }
                 self.fromDropoff(dropoff, home: home) { route in
                     if let route { return completion(route, nil) }
-                    guard let outboundMilliMiles else { return completion(nil, "Trip mileage not read") }
+                    guard let outboundMilliMiles else { return completion(nil, "Order miles not read") }
                     // The drop-off lies on the app's route, so return ≤ (any point on the route)→__HOME_NAME__ + trip miles.
                     self.boundFromPickup(pickup, home: home, outbound: outboundMilliMiles) { route in
                         if let route { return completion(route, nil) }

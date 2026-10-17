@@ -1,4 +1,5 @@
 import AVFoundation
+import UIKit
 
 /// Spoken cues when an order is marked accepted or delivered (user, Oct 15) — by a tap, the GPS, or the delivery app's
 /// screen — so the driver knows without looking. Only those two phrases, nothing else (user, Oct 15: no store names,
@@ -17,9 +18,12 @@ final class AudioCues: NSObject, AVSpeechSynthesizerDelegate {
         synthesizer.delegate = self
     }
 
-    func accepted() { speak("Order accepted") }
+    func accepted() { speak("Order accepted"); haptic() }
 
-    func delivered() { speak("Order delivered") }
+    func delivered() { speak("Order delivered"); haptic() }
+
+    /// A success tap with each cue (polish pass), felt even when the voice is off.
+    private func haptic() { UINotificationFeedbackGenerator().notificationOccurred(.success) }
 
     func test() { speak("Lumen voice cues are on") }
 
