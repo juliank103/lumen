@@ -518,7 +518,7 @@
     { platform: 'doordash', state: 'delivered', all: [/This dash so far|Continue dashing/i] },
     { platform: 'doordash', state: 'available', all: [/Finding offers|Zone offer wait|Move toward a hotspot/i] },
     { platform: 'doordash', state: 'at_customer', all: [/^Drop off order$|Take dropoff photo|Handed to customer|order before drop-off/i] },
-    { platform: 'doordash', state: 'at_store', all: [/^Pick up order$|^Scan receipt$|^No receipt$|Scan customer name|^Verify items$|Report lon[gq][- ]?wait|^Start scanning$|^Start pickup$/i] },
+    { platform: 'doordash', state: 'at_store', all: [/^Pick up order$|^Scan receipt$|Scan customer name|^Verify items$|Report lon[gq][- ]?wait|^Start scanning$|^Start pickup$/i] },
     { platform: 'doordash', state: 'heading_to_customer', all: [/^Deliver by\b/i, /^(Navigate|Arrived)$/i] },
     { platform: 'doordash', state: 'heading_to_store', all: [/^Pick up by\b/i, /^Navigate$/i] },
     // Retail / multi-order pickup card (Oct 15 2026): "Pick up by", the store, its address, "Continue".
@@ -535,9 +535,13 @@
       [/^Pick up (by|at)\b/i, /^Arriving at$/i]] },
     { platform: 'grubhub', state: 'available', all: [/No upcoming tasks|hot spot - more red/i] },
     { platform: 'grubhub', state: 'navigating', all: [/^Arriving at$/i] },
-    // Uber Eats
-    { platform: 'uber_eats', state: 'at_customer', all: [/Info to share with|Where did you leave the order/i] },
+    // Uber Eats (more screens from the user's Oct 16 shift: receipt photo, "Complete pickup", "I delivered the order",
+    // and the navigation bar "5 min · 2.2 mi / <store>" on the way to the store — the evidence of an accept).
+    { platform: 'uber_eats', state: 'at_customer', all: [/Info to share with|Where did you leave the order|^I delivered the order$/i] },
+    { platform: 'uber_eats', state: 'at_store', all: [/^Take receipt photo$|^Take photo of receipt$|^Complete pickup$/i] },
+    { platform: 'uber_eats', state: 'at_store', all: [/^Not a receipt$/i, /Retake/i] },
     { platform: 'uber_eats', state: 'heading_to_customer', all: [/^Deliver to\b/i] },
+    { platform: 'uber_eats', state: 'heading_to_store', test: lines => uberNavStore(lines) !== null },
     { platform: 'uber_eats', state: 'available', all: [/^Hello, /i, /Gold|Platinum|Diamond|Uber Pro/i] }
   ];
 
@@ -547,9 +551,21 @@
     if (offer.kind === 'offer') return { platform: offer.platform, state: 'offer', store: null };
     if (lines.some(l => /^Early look\b|Early look • Order in progress/i.test(l.text))) return { platform: 'uber_eats', state: 'offer', store: null };
     const has = re => lines.some(l => re.test(l.text));
-    const rule = STATUS_RULES.find(r => (r.all ? r.all.every(has) : r.any.some(group => group.every(has))));
+    const rule = STATUS_RULES.find(r => (r.test ? r.test(lines) : r.all ? r.all.every(has) : r.any.some(group => group.every(has))));
     if (!rule) return null;
     return { platform: rule.platform, state: rule.state, store: statusStore(lines, rule) };
+  }
+
+  /* Uber's navigation bar at the bottom: "5 min" and "2.2 mi" side by side, then where to. Returns that line when it's
+   * a store (not "Deliver to …"), else null. OCR may read the digits as I/O ("IO min") or add an icon glyph ("0 1.4 mi"). */
+  function uberNavStore(lines) {
+    const minutes = lines.find(l => l.y > 0.75 && /^[\dIOl]{1,3} ?min$/.test(l.text));
+    if (!minutes) return null;
+    const miles = lines.find(l => Math.abs(l.y - minutes.y) < 0.02 && l !== minutes && /(^|\s)\d{1,3}(\.\d)? ?mi$/.test(l.text));
+    if (!miles) return null;
+    const next = lines.filter(l => l.y > minutes.y + 0.01 && l.y < minutes.y + 0.08).sort((a, b) => a.y - b.y)[0];
+    if (!next || /^Deliver to\b/i.test(next.text) || !/[A-Za-z]{2}/.test(next.text)) return null;
+    return next.text;
   }
 
   /* The store's name where the screen shows it as a business: Grubhub's "Pick up from/at <store>" (or "Pick up" above
@@ -563,6 +579,13 @@
       if (inline) return store(inline[1]);
       const label = lines.find(l => /^Pick up(?: from)?$/i.test(l.text));
       return label ? store(below(lines, label)[0] && below(lines, label)[0].text) : null;
+    }
+    if (rule.platform === 'uber_eats' && rule.state === 'heading_to_store') return store(uberNavStore(lines));
+    if (rule.platform === 'uber_eats' && rule.state === 'at_store') {
+      // "Arriving soon" / <store> on the pickup sheet; the receipt screen leads with the customer, so no store there.
+      const arriving = lines.find(l => /^Arriving soon$/i.test(l.text));
+      const next = arriving && below(lines, arriving)[0];
+      return next ? store(next.text) : null;
     }
     if (rule.platform === 'doordash' && rule.state === 'heading_to_store') {
       const by = lines.find(l => /^Pick up by\b/i.test(l.text));
