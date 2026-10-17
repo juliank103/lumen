@@ -516,9 +516,14 @@
   const STATUS_RULES = [
     // DoorDash
     { platform: 'doordash', state: 'delivered', all: [/This dash so far|Continue dashing/i] },
-    { platform: 'doordash', state: 'available', all: [/Finding offers|Zone offer wait|Move toward a hotspot/i] },
-    { platform: 'doordash', state: 'at_customer', all: [/^Drop off order$|Take dropoff photo|Handed to customer|order before drop-off/i] },
-    { platform: 'doordash', state: 'at_store', all: [/^Pick up order$|^Scan receipt$|Scan customer name|^Verify items$|Report lon[gq][- ]?wait|^Start scanning$|^Start pickup$/i] },
+    // Also wording from DoorDash's help pages and the Aug 2025 Dasher app redesign (researched Oct 17 2026): the home
+    // screen's "Dash Now"/"Dash Along the Way", "Slide upon arrival", QR receipt scan, "Confirm pickup", and the drop-off
+    // photo / "Complete delivery" step — so a visual refresh that keeps these words still reads.
+    { platform: 'doordash', state: 'available', any: [[/Finding offers|Zone offer wait|Move toward a hotspot/i],
+      [/^Dash Now$/i, /Schedule a Dash|Dash Along the Way|Earn (by Time|per Offer)/i]] },
+    { platform: 'doordash', state: 'at_customer', all: [/^Drop off order$|Take dropoff photo|Handed to customer|order before drop-off|verify that you dropped off|^Complete delivery$/i] },
+    { platform: 'doordash', state: 'at_store', all: [/^Pick up order$|^Scan receipt$|Scan customer name|^Verify items$|Report lon[gq][- ]?wait|^Start scanning$|^Start pickup$|Scan QR code on receipt|Manually enter the order number|^Confirm pickup$/i] },
+    { platform: 'doordash', state: 'heading_to_store', all: [/Slide upon arrival/i] },
     { platform: 'doordash', state: 'heading_to_customer', all: [/^Deliver by\b/i, /^(Navigate|Arrived)$/i] },
     { platform: 'doordash', state: 'heading_to_store', all: [/^Pick up by\b/i, /^Navigate$/i] },
     // Retail / multi-order pickup card (Oct 15 2026): "Pick up by", the store, its address, "Continue".
@@ -552,8 +557,22 @@
     if (lines.some(l => /^Early look\b|Early look • Order in progress/i.test(l.text))) return { platform: 'uber_eats', state: 'offer', store: null };
     const has = re => lines.some(l => re.test(l.text));
     const rule = STATUS_RULES.find(r => (r.test ? r.test(lines) : r.all ? r.all.every(has) : r.any.some(group => group.every(has))));
-    if (!rule) return null;
+    if (!rule) {
+      // Nothing known, but it looks like an offer card: tell the driver it wasn't read (a new layout after an app refresh).
+      if (offerLike(lines)) return { platform: detectPlatform(lines).platform || 'unknown', state: 'unread_offer', store: null };
+      return null;
+    }
     return { platform: rule.platform, state: rule.state, store: statusStore(lines, rule) };
+  }
+
+  /* An offer card Lumen can't read: a big pay amount in the lower part of the screen with a distance just around it
+   * (Oct 17 2026: safety net for app redesigns; the DoorDash food bank card, Oct 15, went unread with no warning). */
+  function offerLike(lines) {
+    const pay = lines.filter(l => l.y > 0.35 && l.h >= 0.02 && /^\$\s?\d{1,3}\.\d{2}\b/.test(l.text)).sort((a, b) => b.h - a.h)[0];
+    if (!pay) return false;
+    // "10.2 mi" next to the pay, or Grubhub's number-over-label stats ("miles" on its own line, above or below the pay).
+    return lines.some(l => l.y > pay.y - 0.05 && l.y < pay.y + 0.25 && /\b\d{1,3}(\.\d{1,2})?\s*(mi|miles)\b/i.test(l.text))
+      || lines.some(l => Math.abs(l.y - pay.y) < 0.25 && /(^|\s)miles?(\s|$)/i.test(l.text));
   }
 
   /* Uber's navigation bar at the bottom: "5 min" and "2.2 mi" side by side, then where to. Returns that line when it's
@@ -612,7 +631,7 @@
     return null;
   }
 
-  const api = { READER_VERSION, VERSIONS, VERIFIED_LAYOUTS, readScreen, readStatus, trackSightings, toOffer, verdict, summarize, withReturn, preliminary, shouldUpdate, slug, hash,
+  const api = { READER_VERSION, VERSIONS, VERIFIED_LAYOUTS, readScreen, readStatus, offerLike, trackSightings, toOffer, verdict, summarize, withReturn, preliminary, shouldUpdate, slug, hash,
     preliminaryJSON: (summaryJSON, contextJSON, settingsJSON) =>
       JSON.stringify(preliminary(JSON.parse(summaryJSON), JSON.parse(contextJSON || '{}'), root.Copilot, JSON.parse(settingsJSON || '{}'))),
     readStatusJSON: linesJSON => JSON.stringify(readStatus(JSON.parse(linesJSON))),

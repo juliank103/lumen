@@ -36,6 +36,9 @@ final class SampleHandler: RPBroadcastSampleHandler {
     private var retriedFingerprint: String?
     private var firstSeen: [String: Date] = [:]
     private var lastOfferAt = Date.distantPast
+    // Offer-looking cards that couldn't be read (Oct 17 safety net); touched only on `processing`.
+    private var unreadStreak = 0
+    private var lastUnreadAlert = Date.distantPast
     private var creditTimer: DispatchSourceTimer?
 
     override init() {
@@ -176,6 +179,13 @@ final class SampleHandler: RPBroadcastSampleHandler {
         guard var summary = try reader.summarize(lines, at: capturedAt) else {
             framesWithoutOffer += 1
             if framesWithoutOffer >= 2 { notifiedFingerprint = nil; pendingFingerprint = nil; retriedFingerprint = nil }
+            // Looks like an offer but can't be read (e.g. a redesigned card): say so instead of staying silent.
+            if reader.status(lines)?.state == "unread_offer" { unreadStreak += 1 } else { unreadStreak = 0 }
+            if unreadStreak >= 2, capturedAt.timeIntervalSince(lastUnreadAlert) > 90 {
+                lastUnreadAlert = capturedAt
+                notify(id: "unread-offer-\(Int(capturedAt.timeIntervalSince1970))", title: "Lumen couldn't read this offer",
+                       body: "Check the pay and miles yourself. You can add it afterwards with ＋.", thread: "offers")
+            }
             readOrderState(lines, frame: frame, at: capturedAt)
             return
         }
