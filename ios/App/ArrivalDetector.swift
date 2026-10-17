@@ -23,6 +23,9 @@ struct ArrivalDetector {
     static let dropoffMinFromStore: CLLocationDistance = 1200
     static let dropoffMinAfterLeaving: TimeInterval = 240
     static let deliveredDistance: CLLocationDistance = 150
+    /// While the screen is read, the drop-off came from the app's screen; leaving it by car (not walking back) delivers.
+    static let deliveredDistanceReading: CLLocationDistance = 250
+    static let deliveredSpeedReading: CLLocationSpeed = 4
 
     private var dwellCenter: CLLocation?
     private var dwellSince: Date?
@@ -45,10 +48,12 @@ struct ArrivalDetector {
             if let spot, location.distance(from: spot) > Self.leftStoreDistance { return fire(action, now) }
         }
         // Moving away from a drop-off.
-        for action in actions where action.kind == .delivered && dropoffs {
+        for action in actions where action.kind == .delivered {
             let key = action.id
             if dropoffSpots[key] == nil { dropoffSpots[key] = dwellCenter ?? location }
-            if let spot = dropoffSpots[key], location.distance(from: spot) > Self.deliveredDistance, location.speed > 2 {
+            let distance = dropoffs ? Self.deliveredDistance : Self.deliveredDistanceReading
+            let speed = dropoffs ? 2 : Self.deliveredSpeedReading
+            if let spot = dropoffSpots[key], location.distance(from: spot) > distance, location.speed > speed {
                 dropoffSpots[key] = nil
                 return fire(action, now)
             }

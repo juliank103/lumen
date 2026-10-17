@@ -21,15 +21,21 @@ final class LifecycleSync {
         switch signal.state {
         case "heading_to_store":
             if step(.leftStore, p, now, inferred: false) { return }   // Off to the next store of a multi-store order.
-            if pending(.arrivedStore, p) == nil { acceptLatestOffer(p, now) }
+            if pending(.arrivedStore, p) == nil { acceptLatestOffer(p, now, within: 900) }
+        case "navigating":
+            // The app's own turn-by-turn only runs during an order: nothing open for this app means the accept was missed.
+            if !hasOpenOrder(p) { acceptLatestOffer(p, now, within: 900) }
         case "at_store":
             // At the store with nothing pending: the accept wasn't seen (e.g. the driver went straight to their own maps);
             // the drive there can take a while, so look back 30 minutes.
             if pending(.arrivedStore, p) == nil && pending(.leftStore, p) == nil { acceptLatestOffer(p, now, within: 1800) }
             step(.arrivedStore, p, now, inferred: false)
         case "heading_to_customer":
+            // Cross-check (Oct 17): delivering proves an accept even if every earlier screen was missed.
+            if !hasOpenOrder(p) { acceptLatestOffer(p, now, within: 3600) }
             fillPickup(p, now)
         case "at_customer":
+            if !hasOpenOrder(p) { acceptLatestOffer(p, now, within: 3600) }
             fillPickup(p, now)
             step(.arrivedDropoff, p, now, inferred: false)
         case "delivered":
@@ -53,6 +59,10 @@ final class LifecycleSync {
         }
     }
 
+    private func hasOpenOrder(_ platform: String) -> Bool {
+        TripStore.shared.active?.orders.contains { $0.platform == platform && $0.ended == nil } ?? false
+    }
+
     private func pending(_ kind: Trip.StepKind, _ platform: String) -> TripAction? {
         guard let trip = TripStore.shared.active else { return nil }
         return trip.actions.first { action in
@@ -72,6 +82,9 @@ final class LifecycleSync {
             offer.platform == platform && now.timeIntervalSince(offer.seenAt) < window
                 && TripStore.shared.trip(for: offer.offerId ?? offer.id) == nil && !DemoData.isDemo(offer.offerId)
         }) else { return }
-        TripStore.shared.accept(TripOfferInfo(offer), at: now, source: "screen")
+        // Found late (minutes after the offer): it was accepted right after it was shown, not now.
+        let late = now.timeIntervalSince(offer.seenAt) > 120
+        TripStore.shared.accept(TripOfferInfo(offer), at: late ? offer.seenAt.addingTimeInterval(20) : now,
+                                source: late ? "screen_late" : "screen")
     }
 }

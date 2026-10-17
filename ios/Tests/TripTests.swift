@@ -115,6 +115,19 @@ final class TripTests: XCTestCase {
         XCTAssertNil(detector.next(at: at(39.8530, -98.5400, seconds: 560, speed: 12), trip: trip, storeSpots: [:]))
     }
 
+    func testWhileReadingDrivingAwayFromAScreenConfirmedDropoffDelivers() {
+        var detector = ArrivalDetector()
+        var trip = Trip(id: "t", startedAt: t0, orders: [order("a", stores: ["Five Guys"])], steps: [], endedAt: nil)
+        trip.steps.append(step(.arrivedStore, "a", 0, 0, lat: 39.8400, lon: -98.5400))
+        trip.steps.append(step(.leftStore, "a", 0, 5))
+        trip.steps.append(step(.arrivedDropoff, "a", 0, 15))   // From the app's "at the customer" screen.
+        XCTAssertNil(detector.next(at: at(39.8580, -98.5400, seconds: 910), trip: trip, storeSpots: [:], dropoffs: false))
+        // Walking 120 m to the door and back: not delivered.
+        XCTAssertNil(detector.next(at: at(39.8591, -98.5400, seconds: 960, speed: 1.4), trip: trip, storeSpots: [:], dropoffs: false))
+        // Driving away: delivered.
+        XCTAssertEqual(detector.next(at: at(39.8610, -98.5400, seconds: 1100, speed: 9), trip: trip, storeSpots: [:], dropoffs: false)?.kind, .delivered)
+    }
+
     func testNoDropoffFromGPSWhileTheScreenIsRead() {
         var detector = ArrivalDetector()
         var trip = Trip(id: "t", startedAt: t0, orders: [order("a", stores: ["Five Guys"])], steps: [], endedAt: nil)

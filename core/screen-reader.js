@@ -532,18 +532,21 @@
     // Grubhub
     { platform: 'grubhub', state: 'delivered', all: [/marked as delivered/i] },
     { platform: 'grubhub', state: 'at_customer', all: [/^Drop off photo$|^Mark delivered$|^Take drop-off photo$/i] },
-    { platform: 'grubhub', state: 'at_store', all: [/Confirm correct order|Upload receipt photo|^Confirm order photo$|^Get orders$|^Leaving$/i] },
+    { platform: 'grubhub', state: 'at_store', all: [/Confirm correct order|Upload receipt photo|^Confirm order photo$|^Get orders$|^Leaving$|^Got order$/i] },
     { platform: 'grubhub', state: 'at_store', all: [/^Pick up$/i, /^Standard Order$/i] },
     { platform: 'grubhub', state: 'heading_to_customer', any: [[/^Next Task$/i, /^Dropoff$/i], [/^\d{1,2}:\d{2}\s*[ap]m dropoff$/i],
       [/^Arrived$/i, /Contact-free|Driving Navigation/i]] },
+    // "Arrived" with the pickup details (Grubhub's driver page: tap Arrived at the pickup location).
     { platform: 'grubhub', state: 'heading_to_store', any: [[/^Next Task$/i, /^Pickup$/i], [/^\d{1,2}:\d{2}\s*[ap]m pickup$/i],
+      [/^Pick up (by|at)\b/i, /^Arrived$/i],
       [/^Pick up (by|at)\b/i, /^Arriving at$/i]] },
     { platform: 'grubhub', state: 'available', all: [/No upcoming tasks|hot spot - more red/i] },
     { platform: 'grubhub', state: 'navigating', all: [/^Arriving at$/i] },
     // Uber Eats (more screens from the user's Oct 16 shift: receipt photo, "Complete pickup", "I delivered the order",
     // and the navigation bar "5 min · 2.2 mi / <store>" on the way to the store — the evidence of an accept).
     { platform: 'uber_eats', state: 'at_customer', all: [/Info to share with|Where did you leave the order|^I delivered the order$/i] },
-    { platform: 'uber_eats', state: 'at_store', all: [/^Take receipt photo$|^Take photo of receipt$|^Complete pickup$/i] },
+    // "I have the order": the pickup swipe in Uber's Driver app guide (researched Oct 17).
+    { platform: 'uber_eats', state: 'at_store', all: [/^Take receipt photo$|^Take photo of receipt$|^Complete pickup$|^I have the order$/i] },
     { platform: 'uber_eats', state: 'at_store', all: [/^Not a receipt$/i, /Retake/i] },
     { platform: 'uber_eats', state: 'heading_to_customer', all: [/^Deliver to\b/i] },
     { platform: 'uber_eats', state: 'heading_to_store', test: lines => uberNavStore(lines) !== null },
