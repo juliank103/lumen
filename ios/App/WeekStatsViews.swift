@@ -405,3 +405,35 @@ struct RatesLine: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
+
+/// The seven days as rows ("Mon, Oct 12 … $45.95 ›"), each opening the day's shifts and orders.
+struct ByDayList: View {
+    let stats: WeekStats
+    let dates: [Date]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("By day").font(.headline).foregroundStyle(.secondary)
+            VStack(spacing: 0) {
+                ForEach(Array(stats.days.enumerated()), id: \.offset) { index, day in
+                    if dates.indices.contains(index) {
+                        NavigationLink { DayDetailView(day: day, date: dates[index]) } label: {
+                            HStack {
+                                Text(dates[index].formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
+                                Spacer()
+                                Text(ShiftFormat.money(day.earningsCents)).monospacedDigit()
+                                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                            }
+                            .padding(.vertical, 13)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        if index < stats.days.count - 1 { Divider() }
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+    }
+}
