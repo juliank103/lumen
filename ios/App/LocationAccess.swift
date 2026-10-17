@@ -12,7 +12,7 @@ enum LocationAccess {
         switch manager.authorizationStatus {
         case .authorizedAlways: return "always"
         case .authorizedWhenInUse: return "while using — tap “Allow location always”"
-        case .denied: return "off — Settings › Lumen › Location"
+        case .denied: return "off — Settings › __APP_FULL__ › Location"
         case .restricted: return "restricted"
         case .notDetermined: return "not asked yet"
         @unknown default: return "unknown"

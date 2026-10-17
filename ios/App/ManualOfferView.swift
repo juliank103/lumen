@@ -2,7 +2,7 @@ import SwiftUI
 
 // MARK: The ＋ sheet (user, Oct 15: "This is how Gridwise does their + button … I want this")
 
-/// What the ＋ sheet adds: an order (also an offer Lumen missed), a shift's miles and time, an expense, or tips,
+/// What the ＋ sheet adds: an order (also an offer __APP_NAME__ missed), a shift's miles and time, an expense, or tips,
 /// bonuses, and other earnings. Like Gridwise: pick a tile, pick the day on a calendar, then fill in the form.
 enum AddKind: String, Hashable, CaseIterable {
     case order, shift, expense, extra
@@ -214,7 +214,7 @@ struct ManualOfferForm: View {
         }
     }
 
-    /// The offer as Lumen would have stored it, once the pay is filled in.
+    /// The offer as __APP_NAME__ would have stored it, once the pay is filled in.
     private var draft: LiveOffer? {
         guard let pay = number(payText), pay > 0 else { return nil }
         let payCents = Int((pay * 100).rounded())

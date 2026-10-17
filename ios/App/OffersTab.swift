@@ -85,7 +85,7 @@ struct OffersTab: View {
 }
 
 /// One offer: pay and miles first, then the strongest secondary line — what happened if you took it, else
-/// Lumen's verdict — then the restaurant and time in gray.
+/// __APP_NAME__'s verdict — then the restaurant and time in gray.
 struct OfferRow: View {
     let offer: LiveOffer
     var order: Trip.Order? = nil
@@ -118,7 +118,7 @@ struct OfferRow: View {
     }
 }
 
-/// One offer: the verdict and what happened first; the card's fields next; how Lumen decided is one tap deeper.
+/// One offer: the verdict and what happened first; the card's fields next; how __APP_NAME__ decided is one tap deeper.
 struct OfferDetail: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
@@ -153,7 +153,7 @@ struct OfferDetail: View {
             }
             TripResultSection(offerId: offer.offerId ?? offer.id)
             Section {
-                NavigationLink("How Lumen decided") { OfferReasoning(offer: offer) }
+                NavigationLink("How __APP_NAME__ decided") { OfferReasoning(offer: offer) }
             }
         }
         .toolbar {
@@ -213,7 +213,7 @@ struct OfferReasoning: View {
                 Section("Trace") { Text(debug).font(.caption2.monospaced()).foregroundStyle(.secondary) }
             }
         }
-        .navigationTitle("How Lumen decided")
+        .navigationTitle("How __APP_NAME__ decided")
         .navigationBarTitleDisplayMode(.inline)
     }
 

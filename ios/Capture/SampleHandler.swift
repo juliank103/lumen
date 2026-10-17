@@ -50,7 +50,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
         Signal.started.post()
         NotificationActions.register()
         // Posted before any heavy work, so it arrives even if the extension is terminated later.
-        notify(id: "broadcast-started", title: "Lumen is reading offers",
+        notify(id: "broadcast-started", title: "__APP_NAME__ is reading offers",
                body: "Leave screen reading on. Each offer card will show its verdict here.")
         gate.lock(); active = true; gate.unlock()
         router.startLocation()
@@ -67,7 +67,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
             if self.reader == nil {
                 self.status.failureCode = "reader_unavailable"
                 Signal.readerFailed.post()
-                self.notify(id: "reader-failed", title: "Lumen can't read offers", body: "The offer reader failed to load in the capture extension.")
+                self.notify(id: "reader-failed", title: "__APP_NAME__ can't read offers", body: "The offer reader failed to load in the capture extension.")
             }
             self.publish()
         }
@@ -183,7 +183,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
             if reader.status(lines)?.state == "unread_offer" { unreadStreak += 1 } else { unreadStreak = 0 }
             if unreadStreak >= 2, capturedAt.timeIntervalSince(lastUnreadAlert) > 90 {
                 lastUnreadAlert = capturedAt
-                notify(id: "unread-offer-\(Int(capturedAt.timeIntervalSince1970))", title: "Lumen couldn't read this offer",
+                notify(id: "unread-offer-\(Int(capturedAt.timeIntervalSince1970))", title: "__APP_NAME__ couldn't read this offer",
                        body: "Check the pay and miles yourself. You can add it afterwards with ＋.", thread: "offers")
             }
             readOrderState(lines, frame: frame, at: capturedAt)
@@ -389,7 +389,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
     /// The offer map above the card: town-name text and a 200-pixel-wide RGBA copy for pin detection. Transient.
     private func mapAnalysis(of frame: CIImage, summary: OfferReader.Summary, reader: OfferReader) -> OfferReader.MapAnalysis? {
         let extent = frame.extent
-        // Below the strip where notification banners (including Lumen's own) cover the map.
+        // Below the strip where notification banners (including __APP_NAME__'s own) cover the map.
         let top = 0.13, bottom = max(top + 0.1, min(summary.mapBottom, 0.6))
         let lines = recognize(frame, top: top, bottom: bottom, level: .fast)
         let region = frame.cropped(to: CGRect(x: extent.minX, y: extent.minY + extent.height * CGFloat(1 - bottom),

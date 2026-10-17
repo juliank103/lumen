@@ -71,7 +71,7 @@ struct AccountTab: View {
                 } header: {
                     Text("Permissions")
                 } footer: {
-                    Text("Offers pop up only if Settings › Notifications › Screen Sharing › Allow Notifications is on. Location \"Always\" lets Lumen add up your miles during a shift.")
+                    Text("Offers pop up only if Settings › Notifications › Screen Sharing › Allow Notifications is on. Location \"Always\" lets __APP_NAME__ add up your miles during a shift.")
                 }
                 // Polish pass (Oct 16): one job per screen — the store list and diagnostics live here, not in the menu.
                 Section("More") {
@@ -85,7 +85,7 @@ struct AccountTab: View {
                 } header: {
                     HStack {
                         Text("Your data")
-                        InfoNote(title: "Backups", text: "Before installing a new build, export and save the files to iCloud Drive. If your history is ever missing, restore it from lumen-history.json.")
+                        InfoNote(title: "Backups", text: "Before installing a new build, export and save the files to iCloud Drive. If your history is ever missing, restore it from __APP_SLUG__-history.json.")
                     }
                 }
             }
@@ -118,7 +118,7 @@ struct PrivacyView: View {
     var body: some View {
         List {
             Section {
-                Text("Lumen reads only what is on your screen. It never signs in to, or taps in, your delivery apps.")
+                Text("__APP_NAME__ reads only what is on your screen. It never signs in to, or taps in, your delivery apps.")
                 Text("It saves offer fields and verdicts — not screen images, customer names, or customer addresses.")
                 Text("Apple Maps receives only the drop-off cross-street and town, the restaurant address, town names from the map, or your position, to work out the drive back.")
                 Text("During a shift it adds up miles in the background. Your route is not saved — only mile totals, and where the restaurants you arrive at are.")

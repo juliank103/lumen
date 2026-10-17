@@ -32,14 +32,14 @@
       "info": {
         "path": "Generated/App-Info.plist",
         "properties": {
-          "CFBundleDisplayName": "Lumen",
+          "CFBundleDisplayName": "__APP_FULL__",
           "UILaunchScreen": {},
           "UISupportedInterfaceOrientations": ["UIInterfaceOrientationPortrait"],
           "CopilotAppGroup": "$(COPILOT_APP_GROUP)",
           "UIBackgroundModes": ["location", "audio"],
           "NSSupportsLiveActivities": true,
           "NSLocationWhenInUseUsageDescription": "Measures your drive back after offers and adds up your miles during a shift. Your route is not stored or shared; only mile totals and the places of restaurants you arrive at.",
-          "NSLocationAlwaysAndWhenInUseUsageDescription": "Lets Lumen measure your drive back and add up shift miles while you use your delivery apps. Your route is not stored or shared; only mile totals and the places of restaurants you arrive at.",
+          "NSLocationAlwaysAndWhenInUseUsageDescription": "Lets __APP_NAME__ measure your drive back and add up shift miles while you use your delivery apps. Your route is not stored or shared; only mile totals and the places of restaurants you arrive at.",
           "ALTAppGroups": ["$(COPILOT_APP_GROUP)"],
           "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
           "CFBundleShortVersionString": "$(MARKETING_VERSION)",
@@ -87,7 +87,7 @@
       "info": {
         "path": "Generated/Widgets-Info.plist",
         "properties": {
-          "CFBundleDisplayName": "Lumen Trip",
+          "CFBundleDisplayName": "__APP_NAME__ Trip",
           "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
           "CFBundleShortVersionString": "$(MARKETING_VERSION)",
           "NSExtension": { "NSExtensionPointIdentifier": "com.apple.widgetkit-extension" }
@@ -113,7 +113,7 @@
       "info": {
         "path": "Generated/Capture-Info.plist",
         "properties": {
-          "CFBundleDisplayName": "Lumen Reader",
+          "CFBundleDisplayName": "__APP_NAME__ Reader",
           "CopilotAppGroup": "$(COPILOT_APP_GROUP)",
           "NSLocationWhenInUseUsageDescription": "Used only to measure your drive back to __HOME_NAME__ when an offer arrives. Your position is not stored or shared.",
           "NSLocationAlwaysAndWhenInUseUsageDescription": "Lets the screen-reading broadcast measure your drive back to __HOME_NAME__ while you use your delivery apps. Your position is not stored or shared.",

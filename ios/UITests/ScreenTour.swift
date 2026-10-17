@@ -102,7 +102,7 @@ final class ScreenTour: XCTestCase {
         }
         if tap(text("Olive Garden")) {
             shotScrolling("offer-detail-taken", pages: 3)
-            if tap(text("How Lumen decided")) { shotScrolling("offer-how-lumen-decided", pages: 2); back() }
+            if tap(text("How __APP_NAME__ decided")) { shotScrolling("offer-how-lumen-decided", pages: 2); back() }
             back()
         }
         if tap(text("Roadtrip Bowls")) {

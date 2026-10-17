@@ -1,6 +1,6 @@
 import UserNotifications
 
-/// Buttons on Lumen's notifications (user, Oct 14): "I accepted" on offers, and the next trip step on the trip
+/// Buttons on __APP_NAME__'s notifications (user, Oct 14): "I accepted" on offers, and the next trip step on the trip
 /// notification, so steps can be ticked from the lock screen without switching apps. Categories are per app, so the
 /// app and the capture extension both register this same full set (each call replaces the whole set).
 enum NotificationActions {

@@ -135,7 +135,7 @@ struct AcceptButton: View {
     }
 }
 
-/// Looking back at an accepted offer: what Lumen predicted next to what happened (review: the trust loop), the real
+/// Looking back at an accepted offer: what __APP_NAME__ predicted next to what happened (review: the trust loop), the real
 /// pay (editable — tips change it), and each store's wait.
 struct TripResultSection: View {
     @ObservedObject private var store = TripStore.shared

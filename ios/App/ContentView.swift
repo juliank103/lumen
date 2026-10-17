@@ -81,7 +81,7 @@ struct DashTab: View {
             .safeAreaInset(edge: .bottom) {
                 DashBottomBar(trip: trips.active, reading: model.screenCaptured, destination: model.destination.name, rules: model.rules)
             }
-            .navigationTitle("Lumen")
+            .navigationTitle("__APP_NAME__")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 // Like DoorDash's centered "This week" pill: the reading status, which also starts/stops reading.
@@ -204,7 +204,7 @@ struct DashHelp: View {
             List {
                 Section("Start reading offers") {
                     Text("Tap Start reading offers, then Start Broadcast.")
-                    Text("Or: Control Center → press and hold Screen Recording → Lumen Reader → Start Broadcast.")
+                    Text("Or: Control Center → press and hold Screen Recording → __APP_NAME__ Reader → Start Broadcast.")
                 }
                 Section("Offer pop-ups") {
                     Text("Settings › Notifications › Screen Sharing › Allow Notifications must be on, or offers only land in Notification Center.")

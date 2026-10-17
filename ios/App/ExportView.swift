@@ -38,7 +38,7 @@ struct ExportButton: View {
         guard let tablesText = ShiftEngine.call("exportTablesJSON", [data]),
               let tables = try? JSONSerialization.jsonObject(with: Data(tablesText.utf8)) as? [String: String] else { failed = true; return }
         let stamp = Date().formatted(.iso8601.year().month().day())
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("Lumen export \(stamp)", isDirectory: true)
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("__APP_NAME__ export \(stamp)", isDirectory: true)
         try? FileManager.default.removeItem(at: folder)
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -53,7 +53,7 @@ struct ExportButton: View {
             let everything = "{\"exportedAt\":\(ShiftEngine.json(ISO8601DateFormatter().string(from: Date()))),"
                 + "\"offers\":\(offersJSON),\"trips\":\(tripsJSON),\"shifts\":\(ShiftEngine.json(shiftRows)),"
                 + "\"restaurants\":\(RestaurantStore.shared.databaseJSON),\"entries\":\(EntryStore.shared.json),\"journal\":\(journal)}"
-            let url = folder.appendingPathComponent("lumen-history.json")
+            let url = folder.appendingPathComponent("__APP_SLUG__-history.json")
             try everything.write(to: url, atomically: true, encoding: .utf8)
             urls.append(url)
             files = urls
@@ -64,7 +64,7 @@ struct ExportButton: View {
     }
 }
 
-/// Restore from an export (`lumen-history.json`, e.g. saved to iCloud Drive) after a reinstall: adds the offers,
+/// Restore from an export (`__APP_SLUG__-history.json`, e.g. saved to iCloud Drive) after a reinstall: adds the offers,
 /// trips, and shifts this install doesn't have, the restaurant list if this install has none, and the journal if it's
 /// empty. Nothing already here is changed.
 struct RestoreButton: View {
@@ -90,7 +90,7 @@ struct RestoreButton: View {
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         guard let data = try? Data(contentsOf: url),
               let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-            return "That file isn't a Lumen backup. Choose lumen-history.json from an export."
+            return "That file isn't a __APP_NAME__ backup. Choose __APP_SLUG__-history.json from an export."
         }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
@@ -99,7 +99,7 @@ struct RestoreButton: View {
             return try? decoder.decode(type, from: json)
         }
         guard root["offers"] != nil || root["trips"] != nil else {
-            return "That file isn't a Lumen backup. Choose lumen-history.json from an export."
+            return "That file isn't a __APP_NAME__ backup. Choose __APP_SLUG__-history.json from an export."
         }
         let offers = model.importOffers(decode("offers", [LiveOffer].self) ?? [])
         let trips = TripStore.shared.importTrips(decode("trips", [Trip].self) ?? [])

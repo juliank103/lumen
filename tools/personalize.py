@@ -5,6 +5,9 @@ values = {
     '__HOME_NAME__': os.environ.get('HOME_NAME') or 'Home base',
     '__AREA_LAT__': os.environ.get('AREA_LAT') or '39.83',
     '__AREA_LON__': os.environ.get('AREA_LON') or '-98.58',
+    '__APP_FULL__': os.environ.get('APP_FULL') or 'Lumen',
+    '__APP_NAME__': os.environ.get('APP_NAME') or 'Lumen',
+    '__APP_SLUG__': os.environ.get('APP_SLUG') or 'lumen',
 }
 for top in ('ios', 'core'):
     for root, _, names in os.walk(top):

@@ -1,6 +1,6 @@
 /* Shared verbatim by Node and iOS JavaScriptCore. No network, filesystem, or DOM.
  * The on-phone journal as append-only events (docs/ROADMAP-ADDENDUM.md §8–11) and the order record derived from
- * them (§2–5). What was observed on screen (`offer_seen`) is kept apart from what Lumen predicted
+ * them (§2–5). What was observed on screen (`offer_seen`) is kept apart from what __APP_NAME__ predicted
  * (`prediction_made`, stamped with the logic versions that produced it), so old observations can be replayed through
  * future models. Lifecycle events (accepted … completed / unassigned / cancelled) come from the driver's taps in the app
  * (source 'manual', Oct 14) and later from screen recognizers; an offer card disappearing is never evidence of anything.

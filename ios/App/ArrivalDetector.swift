@@ -143,7 +143,7 @@ final class AutoSteps {
     private func spot(for store: String, near here: CLLocation) -> CLLocation? {
         let key = Self.normalize(store)
         guard !key.isEmpty, !key.hasPrefix("store ") else { return nil }
-        // A restaurant Lumen has a location for (saved from earlier arrivals), the closest branch with that name.
+        // A restaurant __APP_NAME__ has a location for (saved from earlier arrivals), the closest branch with that name.
         let known = RestaurantStore.shared.restaurants.filter { r in r.lat != nil && r.aliases.contains { Self.normalize($0) == key } }
             .compactMap { r in r.lat.flatMap { lat in r.lon.map { CLLocation(latitude: lat, longitude: $0) } } }
             .min { $0.distance(from: here) < $1.distance(from: here) }

@@ -264,7 +264,7 @@ final class ShiftStore: ObservableObject {
         refreshMetrics()
     }
 
-    /// A shift worked without Lumen running (no miles recorded; orders ticked in that time count toward it).
+    /// A shift worked without __APP_NAME__ running (no miles recorded; orders ticked in that time count toward it).
     /// Miles typed in for a past shift (user, Oct 15: edit a shift's details): orders → delivery, other → repositioning.
     /// The per-hour split is dropped, so its miles count on the day it started.
     func setMiles(_ id: String, orderMiles: Double, otherMiles: Double) {

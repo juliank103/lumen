@@ -2,7 +2,7 @@ import ActivityKit
 import UIKit
 
 /// Keeps the trip's Live Activity (lock screen + Dynamic Island) in step with the trip. iOS only lets an app *start* a
-/// Live Activity while it's open, so a trip accepted from a notification shows the trip notification until Lumen is
+/// Live Activity while it's open, so a trip accepted from a notification shows the trip notification until __APP_NAME__ is
 /// next opened; after that, updates work in the background.
 @MainActor
 enum TripActivityController {

@@ -30,15 +30,15 @@ final class ReadingMonitor {
         guard !alerted, now.timeIntervalSince(since) >= 20 else { return }
         alerted = true
         let content = UNMutableNotificationContent()
-        content.title = "Lumen stopped reading offers"
-        content.body = "Offers won't get a verdict. Open Lumen and tap the status at the top to start again."
+        content.title = "__APP_NAME__ stopped reading offers"
+        content.body = "Offers won't get a verdict. Open __APP_NAME__ and tap the status at the top to start again."
         content.threadIdentifier = "status"
         content.sound = .default
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: Self.notificationId, content: content, trigger: nil))
     }
 }
 
-/// Settings Lumen depends on, checked live (review item: setup health). Only problems are listed.
+/// Settings __APP_NAME__ depends on, checked live (review item: setup health). Only problems are listed.
 struct SetupIssue: Identifiable {
     let id: String
     let title: String
@@ -54,7 +54,7 @@ extension AppModel {
             issues.append(SetupIssue(id: "banners", title: "Banners are off", detail: "Verdicts only land in Notification Center."))
         }
         if summaryStatus.hasPrefix("On") {
-            issues.append(SetupIssue(id: "summary", title: "Scheduled Summary holds offers", detail: "Turn it off for Lumen so verdicts arrive at once."))
+            issues.append(SetupIssue(id: "summary", title: "Scheduled Summary holds offers", detail: "Turn it off for __APP_NAME__ so verdicts arrive at once."))
         }
         if LocationAccess.manager.authorizationStatus != .authorizedAlways {
             issues.append(SetupIssue(id: "location", title: "Location isn't set to Always", detail: "Needed for shift miles and automatic arrivals."))

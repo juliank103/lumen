@@ -178,8 +178,8 @@ final class AppModel: ObservableObject {
 
     func sendTestNotification(after seconds: TimeInterval?) {
         let content = UNMutableNotificationContent()
-        content.title = "Lumen test"
-        content.body = seconds == nil ? "🟢 Notifications from Lumen work." : "🟢 If this dropped down over another app, offer pop-ups will too."
+        content.title = "__APP_NAME__ test"
+        content.body = seconds == nil ? "🟢 Notifications from __APP_NAME__ work." : "🟢 If this dropped down over another app, offer pop-ups will too."
         let trigger = seconds.map { UNTimeIntervalNotificationTrigger(timeInterval: $0, repeats: false) }
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "test-\(Date().timeIntervalSince1970)", content: content, trigger: trigger))
     }

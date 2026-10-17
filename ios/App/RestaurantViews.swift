@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Every restaurant Lumen has seen on offers or that you arrived at, with waits; search, rename, and merge duplicates.
+/// Every restaurant __APP_NAME__ has seen on offers or that you arrived at, with waits; search, rename, and merge duplicates.
 struct RestaurantsView: View {
     @ObservedObject private var store = RestaurantStore.shared
     @State private var search = ""

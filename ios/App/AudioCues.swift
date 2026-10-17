@@ -4,7 +4,7 @@ import UIKit
 /// Spoken cues when an order is marked accepted or delivered (user, Oct 15) — by a tap, the GPS, or the delivery app's
 /// screen — so the driver knows without looking. Only those two phrases, nothing else (user, Oct 15: no store names,
 /// minutes, or pay). Like navigation prompts: other audio ducks briefly, it plays with the
-/// ringer on silent, and works while Lumen runs in the background (audio background mode). Account › Speak… turns it off.
+/// ringer on silent, and works while __APP_NAME__ runs in the background (audio background mode). Account › Speak… turns it off.
 @MainActor
 final class AudioCues: NSObject, AVSpeechSynthesizerDelegate {
     static let shared = AudioCues()
@@ -25,7 +25,7 @@ final class AudioCues: NSObject, AVSpeechSynthesizerDelegate {
     /// A success tap with each cue (polish pass), felt even when the voice is off.
     private func haptic() { UINotificationFeedbackGenerator().notificationOccurred(.success) }
 
-    func test() { speak("Lumen voice cues are on") }
+    func test() { speak("__APP_NAME__ voice cues are on") }
 
     private func speak(_ text: String) {
         guard Self.isEnabled, !PreviewData.isActive else { return }

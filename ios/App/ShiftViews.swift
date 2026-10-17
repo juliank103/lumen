@@ -170,7 +170,7 @@ struct ShiftEditTarget: Identifiable {
     let shift: Shift?
 }
 
-/// Edit a shift's hours, delete it, or add one worked without Lumen running (shift nil). The running shift's start
+/// Edit a shift's hours, delete it, or add one worked without __APP_NAME__ running (shift nil). The running shift's start
 /// can be moved; it ends by itself or with End shift.
 struct ShiftEditor: View {
     @Environment(\.dismiss) private var dismiss

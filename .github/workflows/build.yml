@@ -18,6 +18,9 @@ jobs:
           HOME_QUERY: ${{ secrets.HOME_QUERY }}
           AREA_LAT: ${{ secrets.AREA_LAT }}
           AREA_LON: ${{ secrets.AREA_LON }}
+          APP_NAME: ${{ secrets.APP_NAME }}
+          APP_FULL: ${{ secrets.APP_FULL }}
+          APP_SLUG: ${{ secrets.APP_SLUG }}
           ARTIFACT_KEY: ${{ secrets.ARTIFACT_KEY }}
         run: |
           if [ -z "$ARTIFACT_KEY" ] || [ -z "$HOME_QUERY" ]; then echo "Build settings (secrets) are missing"; exit 1; fi

@@ -85,7 +85,7 @@ struct SideMenu: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Lumen").font(.largeTitle.weight(.bold))
+                Text("__APP_NAME__").font(.largeTitle.weight(.bold))
                 HStack(spacing: 6) {
                     Circle().fill(model.isReading ? Theme.neonGreen : Color.gray).frame(width: 8, height: 8)
                     Text(model.screenCaptured ? model.statusText : "Not reading offers").font(.subheadline).foregroundStyle(.secondary)
