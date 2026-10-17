@@ -93,10 +93,8 @@ struct StatsTab: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         if let current = shifts.current {
-                            Button("End shift", role: .destructive) { confirmEnd = true }
                             Button("Edit shift times…") { editingShift = ShiftEditTarget(shift: current) }
                         } else {
-                            Button("Start shift") { shifts.startIfNeeded() }
                             if let last = shifts.history.last {
                                 Button("Edit last shift's times…") { editingShift = ShiftEditTarget(shift: last) }
                             }

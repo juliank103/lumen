@@ -103,6 +103,7 @@ struct DashBottomBar: View {
     let reading: Bool
     let destination: String
     let rules: Rules
+    @ObservedObject private var shifts = ShiftStore.shared
 
     var body: some View {
         VStack(spacing: 10) {
@@ -123,7 +124,21 @@ struct DashBottomBar: View {
                     }
                     .font(.footnote).foregroundStyle(.secondary)
                 }
-                if !reading { BroadcastButton(running: false) }
+                if shifts.current == nil {
+                    // Starting a shift lives on Home (user, Oct 16); it also starts screen reading if that's off.
+                    Button {
+                        shifts.startIfNeeded()
+                        if !reading { BroadcastLauncher.shared.open() }
+                    } label: {
+                        Text("Start shift").font(.headline.weight(.bold)).foregroundStyle(.white)
+                            .frame(maxWidth: .infinity).frame(height: 56)
+                            .background(Theme.purple, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .background(PickerHost().frame(width: 1, height: 1).opacity(0.01))
+                } else if !reading {
+                    BroadcastButton(running: false)
+                }
             }
         }
         .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 8)

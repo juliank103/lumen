@@ -24,6 +24,7 @@ struct ShiftSummaryCard: View {
     @ObservedObject private var shifts = ShiftStore.shared
     @ObservedObject private var trips = TripStore.shared
     @State private var editingGoal = false
+    @State private var confirmEnd = false
     @ScaledMetric(relativeTo: .largeTitle) private var earningsSize: CGFloat = 32
 
     var body: some View {
@@ -52,9 +53,20 @@ struct ShiftSummaryCard: View {
                     }
                 }
                 GoalBar(metrics: m, editing: $editingGoal)
+                // Ending a shift lives on Home (user, Oct 16), next to the shift it ends.
+                Button(role: .destructive) { confirmEnd = true } label: {
+                    Text("End shift").font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity).padding(.vertical, 8)
+                }
+                .buttonStyle(.bordered)
+                .tint(.red)
             }
             .dasherCard()
             .goalEditor(isPresented: $editingGoal)
+            .confirmationDialog("End this shift?", isPresented: $confirmEnd) {
+                Button("End shift", role: .destructive) { shifts.end() }
+            } message: {
+                Text("Its time and miles stop counting. Screen reading stays on until you stop it.")
+            }
         }
     }
 }
