@@ -574,6 +574,9 @@
     // "Name1000034024 R" is DoorDash's customer/order label on multi-order pickups: never a store.
     const store = text => (text && !isAddress(text) && /[A-Za-z]{2}/.test(text) && !/^(Pick up|Instructions|There are|Driving)/i.test(text)
       && !/[A-Za-z]\d{5,}/.test(text) ? text.slice(0, 80) : null);
+    // Grubhub names the store only on pickup screens; on the drop-off screen "Pick up from" is followed by other
+    // labels ("Order placed", Oct 16 screenshots), so nothing is taken there.
+    if (rule.platform === 'grubhub' && rule.state !== 'at_store' && rule.state !== 'heading_to_store') return null;
     if (rule.platform === 'grubhub') {
       const inline = lines.map(l => /^Pick up (?:from|at) (.+)$/i.exec(l.text)).find(m => m && !/^\d/.test(m[1]));
       if (inline) return store(inline[1]);
