@@ -110,7 +110,9 @@ struct OfferRow: View {
     }
 
     private var payAndMiles: String {
-        let pay = (Double(offer.payCents) / 100).formatted(.currency(code: "USD"))
+        // What the order actually paid once it's done (a corrected payout or hidden tip), else the offer's pay.
+        let cents = order.flatMap { $0.completed ? $0.payCents : nil } ?? offer.payCents
+        let pay = (Double(cents) / 100).formatted(.currency(code: "USD"))
         guard let miles = offer.outboundMilliMiles else { return pay }
         return pay + " · " + String(format: "%.1f mi", Double(miles) / 1000)
     }
@@ -121,6 +123,8 @@ struct OfferDetail: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
     let offer: LiveOffer
+    // Observed so an edited pay or time shows here at once (user, Oct 16: the edit looked like it didn't save).
+    @ObservedObject private var trips = TripStore.shared
     @State private var confirmDelete = false
     @State private var editingOrder: OrderEditTarget?
     var body: some View {
@@ -131,7 +135,13 @@ struct OfferDetail: View {
                         AppLogo(platform: offer.platform, size: 32)
                         Text(offer.seenAt.formatted(date: .abbreviated, time: .shortened)).foregroundStyle(.secondary)
                     }
-                    Text((Double(offer.payCents) / 100).formatted(.currency(code: "USD"))).font(.largeTitle.weight(.bold))
+                    let order = trips.trip(for: offer.offerId ?? offer.id)?.orders.first { $0.offerId == (offer.offerId ?? offer.id) }
+                    let paid = order.flatMap { $0.completed ? $0.payCents : nil }
+                    Text((Double(paid ?? offer.payCents) / 100).formatted(.currency(code: "USD"))).font(.largeTitle.weight(.bold))
+                    if let paid, paid != offer.payCents {
+                        Text("Paid, with your correction · offer was " + (Double(offer.payCents) / 100).formatted(.currency(code: "USD")))
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    }
                     Text(summaryLine).font(.subheadline).foregroundStyle(.secondary)
                     VerdictChip(notice: offer.notice, large: true)
                     if TripStore.shared.trip(for: offer.offerId ?? offer.id) != nil {
