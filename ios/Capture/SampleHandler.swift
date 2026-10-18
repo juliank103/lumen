@@ -36,6 +36,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
     private var retriedFingerprint: String?
     private var firstSeen: [String: Date] = [:]
     private var lastOfferAt = Date.distantPast
+    /// The app of the last offer or exactly read order screen (for judging loose matches); touched only on `processing`.
+    private var recentPlatform: (platform: String, at: Date)?
     // Offer-looking cards that couldn't be read (Oct 17 safety net); touched only on `processing`.
     private var unreadStreak = 0
     private var lastUnreadAlert = Date.distantPast
@@ -203,6 +205,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
         }
         framesWithoutOffer = 0
         lastOfferAt = capturedAt
+        recentPlatform = (summary.platform, capturedAt)
         status.offersRead += 1
         if firstSeen[summary.fingerprint] == nil { firstSeen[summary.fingerprint] = capturedAt }
         if firstSeen.count > 200 { firstSeen = firstSeen.filter { capturedAt.timeIntervalSince($0.value) < 3600 } }
@@ -439,10 +442,17 @@ final class SampleHandler: RPBroadcastSampleHandler {
             candidateStatus = nil
             return
         }
+        // A loose (misread) match is only believed for the app the driver has been using — the last offer or exactly
+        // read screen in the past hour. A misread Grubhub drop-off once resembled DoorDash's (scorecard, Oct 18).
+        if status.tolerant, let recent = recentPlatform, now.timeIntervalSince(recent.at) < 3600, recent.platform != status.platform {
+            candidateStatus = nil
+            return
+        }
+        if !status.tolerant { recentPlatform = (status.platform, now) }
         let key = status.platform + "." + status.state
         // Pickup screens are specific enough to act on at the first read (they're the evidence of an accept, Oct 16
-        // field miss); other states must be read twice in a row.
-        let immediate = status.state == "heading_to_store" || status.state == "at_store"
+        // field miss); other states, and any loose (misread) match, must be read twice in a row.
+        let immediate = (status.state == "heading_to_store" || status.state == "at_store") && !status.tolerant
         guard key == candidateStatus || immediate else { candidateStatus = key; return }
         candidateStatus = key
         guard key != sentStatus else { return }

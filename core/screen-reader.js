@@ -27,10 +27,136 @@
   };
   const PAY = /^\$\s?(\d{1,3})\.(\d{2})(?!\d)/;
 
-  // Strip a stray icon glyph that OCR reads as a one-character token ("o Olive Garden", "0 56 min").
+  // Strip a stray icon glyph that OCR reads as a one-character token ("o Olive Garden", "0 56 min", "O mapbox").
   function clean(text) {
-    return String(text).replace(/\s+/g, ' ').trim().replace(/^(?:[^A-Za-z0-9$(\s]{1,2}|[a-z0-9@])\s+(?=[A-Z0-9$(])/, '');
+    return String(text).replace(/\s+/g, ' ').trim()
+      .replace(/^(?:[^A-Za-z0-9$(\s]{1,2}|[a-z0-9@]|O)\s+(?=[A-Z0-9$(])|^[oOe@]\s+(?=[a-z]{3})/, '');
   }
+  /* Numbers misread as letters ("$1O.37", "(6.O mi)", "$12,37"): in tokens that already hold a digit, O/o→0, l/I/|→1,
+   * S→5, B→8; and a decimal comma before "mi", ")" or the end becomes a point (Oct 18 2026, OCR noise model). */
+  function fixNumbers(text) {
+    return text.replace(/(^|[\s(])([$(]?(?:\d|[lIO|]\d)[0-9OolI|SB.,:]*[0-9OolI|SB)]?)(?=$|[\s)])/g, (all, lead, token) => {
+      if (!/[OolI|SB]/.test(token)) return all;
+      return lead + token.replace(/[Oo]/g, '0').replace(/[lI|]/g, '1').replace(/S/g, '5').replace(/B/g, '8');
+    }).replace(/(\d),(\d{1,2})(?=\s*(mi\b|\)|$))/g, '$1.$2')
+      // "rn" read for "m" in units ("25 rnin", "7.1 rni"); "IO min" for "10 min".
+      .replace(/(\d\s*)rn(in|i)\b/g, '$1m$2').replace(/\b[IOl]{1,2}(?=\s*min\b)/g, d => d.replace(/O/g, '0').replace(/[Il]/g, '1'))
+      // A dropped decimal point in a pay amount: "$2765" is $27.65 (no offer pays $2,765).
+      .replace(/^\$(\d{2})(\d{2})(?=\b|\s|$)/, '$$$1.$2');
+  }
+  /* Tolerant matching (Oct 18 2026). Rules are regexes; their plain-word alternatives ("^Pick up order$",
+   * "Report long wait") also match with OCR mistakes: letters folded where OCR confuses them (0/o, 1/l/i, 5/s, 8/b,
+   * c/e, q/g, rn/m), spaces and punctuation ignored, and 1 wrong letter allowed from 6 letters on, 2 from 12. A regex's
+   * spaces also match missing or doubled spaces. Measured with scripts/eval-reader.cjs. */
+  const FOLD = { 0: 'o', 1: 'l', i: 'l', '|': 'l', 5: 's', 8: 'b', c: 'e', q: 'g' };
+  function squash(text) {
+    let out = '';
+    for (const ch of String(text).toLowerCase().replace(/rn/g, 'm')) {
+      const f = FOLD[ch] || ch;
+      if ((f >= 'a' && f <= 'z') || (f >= '0' && f <= '9')) out += f;
+    }
+    return out;
+  }
+  function editDistance(a, b) {
+    let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+    for (let i = 1; i <= a.length; i++) {
+      const row = [i];
+      for (let j = 1; j <= b.length; j++) row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = row;
+    }
+    return prev[b.length];
+  }
+  // Fewest edits turning `pattern` into some stretch of `text`.
+  function containsDistance(text, pattern) {
+    let prev = Array(text.length + 1).fill(0);
+    for (let i = 1; i <= pattern.length; i++) {
+      const row = [i];
+      for (let j = 1; j <= text.length; j++) row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (pattern[i - 1] === text[j - 1] ? 0 : 1));
+      prev = row;
+    }
+    return Math.min.apply(null, prev);
+  }
+  const tolerance = n => (n >= 12 ? 2 : n >= 6 ? 1 : 0);
+  function splitTop(source) {
+    const parts = [];
+    let depth = 0, cls = false, cur = '';
+    for (let i = 0; i < source.length; i++) {
+      const ch = source[i];
+      if (ch === '\\') { cur += ch + source[++i]; continue; }
+      if (cls) { if (ch === ']') cls = false; cur += ch; continue; }
+      if (ch === '[') cls = true;
+      else if (ch === '(') depth++;
+      else if (ch === ')') depth--;
+      else if (ch === '|' && depth === 0) { parts.push(cur); cur = ''; continue; }
+      cur += ch;
+    }
+    parts.push(cur);
+    return parts;
+  }
+  const matcherCache = new Map();
+  function matcher(re) {
+    let m = matcherCache.get(re);
+    if (m) return m;
+    // "^(Navigate|Arrived)$" → "^Navigate$", "^Arrived$": one group of plain words is spread out first.
+    const alts = [].concat.apply([], splitTop(re.source).map(alt => {
+      const g = /^(\^?)([^()]*)\(([^()]+)\)([^()]*?)(\$?)$/.exec(alt);
+      return g && !/(^|[^\\])[[\]?*+{}]/.test(g[3]) ? splitTop(g[3]).map(x => g[1] + g[2] + x + g[4] + g[5]) : [alt];
+    }));
+    const words = alts.map(alt => {
+      const whole = alt.startsWith('^') && alt.endsWith('$') && !alt.endsWith('\\$');
+      const body = alt.replace(/^\^/, '').replace(/\$$/, '').replace(/\\b/g, '');
+      // Real regex syntax (unescaped brackets, quantifiers, classes like \s or \d): no plain-word form.
+      if (/(^|[^\\])[[\]()?*+{}|^$]/.test(body) || /\\[sSdDwW]/.test(body)) return null;
+      const sq = squash(body.replace(/\\(.)/g, '$1'));
+      return sq.length >= 3 ? { sq, whole, tol: tolerance(sq.length) } : null;
+    }).filter(Boolean);
+    const spaced = new RegExp(re.source.replace(/ /g, '\\s*'), re.flags.replace('g', ''));
+    m = { re, spaced, words };
+    matcherCache.set(re, m);
+    return m;
+  }
+  /* How well a rule's text is on screen: 0 = an exact (regex) match; 0.5 + edits = a tolerant match; Infinity = absent.
+   * Exact matches always win, so near-identical wording from two apps ("Take dropoff photo" / "Take drop-off photo")
+   * is only ever compared when no app's wording is on screen exactly. */
+  function matchCost(lines, re) {
+    const cache = lines._costs || (Object.defineProperty(lines, '_costs', { value: new Map(), enumerable: false }), lines._costs);
+    if (cache.has(re)) return cache.get(re);
+    const m = matcher(re), texts = textsOf(lines);
+    let best = texts.some(t => m.re.test(t.text) || m.spaced.test(t.text)) ? 0 : Infinity;
+    if (best !== 0) {
+      for (const w of m.words) {
+        for (const t of texts) {
+          let d = Infinity;
+          if (w.whole) {
+            if (t.sq.length <= w.sq.length * 1.4 + 2) d = Math.min(editDistance(t.sq, w.sq), containsDistance(t.sq, w.sq) + (t.sq.length > w.sq.length + 2 ? 1 : 0));
+          } else if (t.sq.length >= w.sq.length - w.tol) d = containsDistance(t.sq, w.sq);
+          if (d <= w.tol && d + 0.5 < best) best = d + 0.5;
+        }
+      }
+    }
+    cache.set(re, best);
+    return best;
+  }
+  /* The texts a screen offers for matching: each line, plus each row of lines at the same height joined left to right
+   * (OCR may split "Pick up" / "order"). Squashed forms are computed once. */
+  function textsOf(lines) {
+    if (lines._texts) return lines._texts;
+    const texts = lines.map(l => ({ text: l.text, sq: squash(l.text) }));
+    const sorted = lines.slice().sort((a, b) => a.y - b.y || a.x - b.x);
+    for (let i = 0; i < sorted.length; i++) {
+      const row = [sorted[i]];
+      while (i + 1 < sorted.length && Math.abs(sorted[i + 1].y - sorted[i].y) < 0.012) row.push(sorted[++i]);
+      if (row.length > 1) {
+        const text = row.sort((a, b) => a.x - b.x).map(l => l.text).join(' ');
+        texts.push({ text, sq: squash(text) });
+      }
+    }
+    Object.defineProperty(lines, '_texts', { value: texts, enumerable: false });
+    return texts;
+  }
+  const exactText = (lines, re) => matchCost(lines, re) === 0;
+  const hasText = (lines, re) => matchCost(lines, re) < Infinity;
+
   function slug(text) {
     return text.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/['’]/g, '')
       .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
@@ -42,19 +168,39 @@
   function normalizeLines(lines) {
     if (!Array.isArray(lines)) throw new Error('OCR lines must be an array');
     return lines.filter(l => l && typeof l.text === 'string' && [l.x, l.y, l.w, l.h].every(Number.isFinite))
-      .map(l => ({ text: clean(l.text), raw: String(l.text), x: l.x, y: l.y, w: l.w, h: l.h }))
-      .filter(l => l.text.length > 0).sort((a, b) => a.y - b.y || a.x - b.x);
+      .map(l => ({ text: fixNumbers(clean(l.text)), raw: String(l.text), x: l.x, y: l.y, w: l.w, h: l.h }))
+      .filter(l => l.text.length > 0).sort((a, b) => a.y - b.y || a.x - b.x)
+      .reduce((out, l) => {
+        // One line OCR split in two (same height, touching): join it back so "30 min (6.0" + "mi) total" reads as one.
+        const prev = out[out.length - 1];
+        if (prev && Math.abs(prev.y - l.y) < 0.006 && l.x >= prev.x && l.x - (prev.x + prev.w) < 0.02) {
+          prev.text = fixNumbers(clean(prev.text + ' ' + l.text)); // An icon glyph joined in front is stripped again.
+          prev.w = l.x + l.w - prev.x;
+          prev.h = Math.max(prev.h, l.h);
+        } else out.push(l);
+        return out;
+      }, []);
   }
   function detectPlatform(lines) {
-    let best = null, bestScore = 0, second = 0;
-    Object.keys(MARKERS).forEach(platform => {
-      const score = MARKERS[platform].filter(re => lines.some(l => re.test(l.text))).length;
-      if (score > bestScore) { second = bestScore; bestScore = score; best = platform; } else if (score > second) second = score;
-    });
-    return { platform: bestScore >= 2 && bestScore > second ? best : null, score: bestScore, runnerUp: second };
+    // Exact wording first; tolerant matching only when that can't decide (an app's markers misread by OCR).
+    const decide = test => {
+      let best = null, bestScore = 0, second = 0;
+      Object.keys(MARKERS).forEach(platform => {
+        const score = MARKERS[platform].filter(re => test(lines, re)).length;
+        if (score > bestScore) { second = bestScore; bestScore = score; best = platform; } else if (score > second) second = score;
+      });
+      return { platform: bestScore >= 2 && bestScore > second ? best : null, score: bestScore, runnerUp: second };
+    };
+    const exact = decide(exactText);
+    return exact.platform ? exact : decide(hasText);
   }
   function findPay(lines) {
-    const candidates = lines.filter(l => PAY.test(l.text) && !/boost|promo|bonus|peak|surge/i.test(l.text) && l.y > 0.25);
+    // Not a boost/promo line, even misread ("$2.00 B00st+ included"), and not small print: when the real pay line is
+    // lost, the small boost amount must not stand in for it (scorecard, Oct 18).
+    const extra = l => /boost|promo|bonus|peak|surge/i.test(l.text) || /boost|promo|bonus|peak|surge|lneluded/.test(squash(l.text));
+    const money = lines.filter(l => PAY.test(l.text) && l.y > 0.25);
+    const tallest = Math.max.apply(null, money.map(l => l.h).concat([0]));
+    const candidates = money.filter(l => !extra(l) && l.h >= 0.6 * tallest);
     if (!candidates.length) return null;
     const line = candidates.reduce((a, b) => (b.h > a.h ? b : a));
     const m = PAY.exec(line.text);
@@ -73,9 +219,13 @@
    * row as one line, so rows are split into words and each label takes the nearest unused number above it. */
   function statColumns(lines) {
     const LABELS = { miles: /^(miles?|mi)$/i, minutes: /^(minutes?|mins?)$/i, orders: /^orders?$/i };
+    // Labels also when misread ("rniles", "mlnutes", "ordcrs"; scorecard, Oct 18).
+    const near = (s, word) => s.length >= 4 && editDistance(s, squash(word)) <= 1;
+    const labelOf = text => Object.keys(LABELS).find(k => LABELS[k].test(text))
+      || (s => (near(s, 'miles') ? 'miles' : near(s, 'minutes') || s === squash('mins') ? 'minutes' : near(s, 'orders') ? 'orders' : undefined))(squash(text));
     const result = {}, used = new Set();
     lines.forEach(l => words(l).forEach(t => {
-      const key = Object.keys(LABELS).find(k => LABELS[k].test(t.text));
+      const key = labelOf(t.text);
       if (!key || result[key] !== undefined) return;
       const numbers = [];
       lines.filter(v => v !== l && v.y < l.y && l.y - v.y < 0.1)
@@ -87,9 +237,12 @@
     return result;
   }
   function readUber(lines, pay, f, problems) {
-    const total = lines.find(l => /(\d{1,3})\s*min\s*\(\s*([\d.]+)\s*mi\)\s*total/i.test(l.text));
+    // "25 min (7.1 mi) total", also with a bracket misread or lost ("{7.1 mi", "(7.1 mi total", "t0tal").
+    const TOTAL = /(\d{1,3})\s*min\s*([({[])?\s*(\d{1,3}(?:\.\d{1,2})?)\s*mi\b\s*[)}\]]?\s*(t[o0]ta[l1I])?/i;
+    const isTotal = text => { const m = TOTAL.exec(text); return m && (m[2] || m[4]) ? m : null; };
+    const total = lines.find(l => isTotal(l.text));
     if (total) {
-      const m = /(\d{1,3})\s*min\s*\(\s*([\d.]+)\s*mi\)\s*total/i.exec(total.text);
+      const t = isTotal(total.text), m = [t[0], t[1], t[3]];
       f.appMinutes = Number(m[1]); f.milesText = m[2];
       const next = below(lines, total);
       if (next[0] && !isAddress(next[0].text)) f.merchants.push(next[0].text);
@@ -195,6 +348,14 @@
     const text = card.map(l => l.text).join('\n');
     const payBasis = /Guaranteed/i.test(text) ? 'guaranteed' : 'displayed_estimate';
     const orderType = /\b(Shop(ping)?|Shop & Pay|Grocer(y|ies)|Retail)\b/i.test(text) ? 'shop' : /\b(Package|Parcel|Courier)\b/i.test(text) ? 'other' : 'food';
+    // All three apps print miles with one decimal ("7.1", "11.0"); a whole number of 2–3 digits is a lost point
+    // ("71" → 7.1), never 71 miles (scorecard, Oct 18: a dropped point gave 71 mi for a 25-minute trip).
+    if (f.milesText !== null && /^\d{2,3}$/.test(f.milesText)) {
+      f.milesText = f.milesText.slice(0, -1) + '.' + f.milesText.slice(-1);
+      problems.push('Mileage decimal point was missing; restored'); // Lower confidence: the phone waits for a 2nd read.
+    }
+    // Two decimals ("10.21") is a neighbouring number run in ("10.2" + "1 order"): wait for another read.
+    if (f.milesText !== null && /^\d{1,3}\.\d{2}$/.test(f.milesText)) problems.push('Mileage has two decimals; the apps print one');
     const outboundMilliMiles = f.milesText === null ? null : milli(f.milesText);
     if (f.milesText !== null && outboundMilliMiles === null) problems.push('Mileage text is not a plain number');
     if (f.milesText !== null && f.milesText.indexOf('.') < 0 && Number(f.milesText) >= 20) problems.push('Mileage has no decimal point; OCR may have dropped it');
@@ -524,11 +685,16 @@
     { platform: 'doordash', state: 'at_customer', all: [/^Drop off order$|Take dropoff photo|Handed to customer|order before drop-off|verify that you dropped off|^Complete delivery$/i] },
     { platform: 'doordash', state: 'at_store', all: [/^Pick up order$|^Scan receipt$|Scan customer name|^Verify items$|Report lon[gq][- ]?wait|^Start scanning$|^Start pickup$|Scan QR code on receipt|Manually enter the order number|^Confirm pickup$/i] },
     { platform: 'doordash', state: 'heading_to_store', all: [/Slide upon arrival/i] },
-    { platform: 'doordash', state: 'heading_to_customer', all: [/^Deliver by\b/i, /^(Navigate|Arrived)$/i] },
+    { platform: 'doordash', state: 'heading_to_customer', any: [[/^Deliver by\b/i, /^(Navigate|Arrived)$/i],
+      // The drop-off card also says how to leave it (offer cards with "Deliver by" never do).
+      [/^Deliver by\b/i, /^(Leave at door|Hand it to customer|Hand to customer)$/i]] },
     { platform: 'doordash', state: 'heading_to_store', all: [/^Pick up by\b/i, /^Navigate$/i] },
     // Retail / multi-order pickup card (Oct 15 2026): "Pick up by", the store, its address, "Continue".
     { platform: 'doordash', state: 'heading_to_store', all: [/^Pick up by\b/i, /^Continue$/i] },
-    { platform: 'doordash', state: 'navigating', all: [/^Exit$/i, /Arriving soon|^Resume$|\bmi\s*•\s*\d{1,2}:\d{2}/i] },
+    // DoorDash's in-app map: "Exit" with "Arriving soon"/"Resume", or its ETA row with the map's "mapbox" credit. Google
+    // Maps also has "Exit" and "3.4 mi • 5:42 PM" (scorecard, Oct 18), so the ETA alone doesn't count.
+    { platform: 'doordash', state: 'navigating', any: [[/^Exit$/i, /Arriving soon|^Resume$/i],
+      [/^Exit$/i, /\bmi\s*[•·.*]\s*\d{1,2}:\d{2}/i, /mapbox/i]] },
     // Grubhub
     { platform: 'grubhub', state: 'delivered', all: [/marked as delivered/i] },
     { platform: 'grubhub', state: 'at_customer', all: [/^Drop off photo$|^Mark delivered$|^Take drop-off photo$/i] },
@@ -547,46 +713,98 @@
     { platform: 'uber_eats', state: 'at_customer', all: [/Info to share with|Where did you leave the order|^I delivered the order$/i] },
     // "I have the order": the pickup swipe in Uber's Driver app guide (researched Oct 17).
     { platform: 'uber_eats', state: 'at_store', all: [/^Take receipt photo$|^Take photo of receipt$|^Complete pickup$|^I have the order$/i] },
+    // Uber's pickup sheet: "Arriving soon" over the store, "Pick up 1 order" (DoorDash's is "Pick up order", no number).
+    { platform: 'uber_eats', state: 'at_store', all: [/^Arriving soon$/i, /^Pick up \d+ orders?$/i] },
     { platform: 'uber_eats', state: 'at_store', all: [/^Not a receipt$/i, /Retake/i] },
     { platform: 'uber_eats', state: 'heading_to_customer', all: [/^Deliver to\b/i] },
     { platform: 'uber_eats', state: 'heading_to_store', test: lines => uberNavStore(lines) !== null },
     { platform: 'uber_eats', state: 'available', all: [/^Hello, /i, /Gold|Platinum|Diamond|Uber Pro/i] }
   ];
 
+  /* No rule's wording is on screen exactly (OCR mistakes): the rule with the fewest edits. A tie between apps is broken
+   * by how much of each app's wording the rest of the screen shows; still tied → nothing (better than a wrong app). */
+  function tolerantRule(lines) {
+    const cost = r => {
+      if (r.test) return Infinity;
+      const sum = group => group.reduce((t, re) => t + matchCost(lines, re), 0);
+      return r.all ? sum(r.all) : Math.min.apply(null, r.any.map(sum));
+    };
+    const scored = STATUS_RULES.map(r => ({ r, c: cost(r) })).filter(x => x.c < Infinity);
+    if (!scored.length) return null;
+    const least = Math.min.apply(null, scored.map(x => x.c));
+    const best = scored.filter(x => x.c === least).map(x => x.r);
+    const platforms = Array.from(new Set(best.map(r => r.platform)));
+    if (platforms.length === 1) return best[0];
+    const votes = p => STATUS_RULES.filter(r => r.platform === p && !r.test)
+      .reduce((n, r) => n + (r.all || [].concat.apply([], r.any)).filter(re => hasText(lines, re)).length, 0);
+    const ranked = platforms.map(p => ({ p, v: votes(p) })).sort((a, b) => b.v - a.v);
+    return ranked[0].v > ranked[1].v ? best.find(r => r.platform === ranked[0].p) : null;
+  }
+
   function readStatus(rawLines) {
     const lines = normalizeLines(rawLines);
     const offer = readScreen(rawLines);
     if (offer.kind === 'offer') return { platform: offer.platform, state: 'offer', store: null };
     if (lines.some(l => /^Early look\b|Early look • Order in progress/i.test(l.text))) return { platform: 'uber_eats', state: 'offer', store: null };
-    const has = re => lines.some(l => re.test(l.text));
-    const rule = STATUS_RULES.find(r => (r.test ? r.test(lines) : r.all ? r.all.every(has) : r.any.some(group => group.every(has))));
-    if (!rule) {
-      // Nothing known, but it looks like an offer card: tell the driver it wasn't read (a new layout after an app refresh).
-      if (offerLike(lines)) return { platform: detectPlatform(lines).platform || 'unknown', state: 'unread_offer', store: null };
-      return null;
+    const exact = re => exactText(lines, re), loose = re => hasText(lines, re);
+    // Exact wording first, in rule order (as before); else the closest tolerant match.
+    let rule = STATUS_RULES.find(r => (r.test ? r.test(lines) : r.all ? r.all.every(exact) : r.any.some(group => group.every(exact))));
+    let tolerant = false;
+    if (rule) {
+      // An earlier (more specific) rule of the same app whose wording is there but misread wins: Grubhub's drop-off
+      // screen shows "Take drop-off photo" and, once done, "marked as delivered" (scorecard, Oct 18).
+      const at = STATUS_RULES.indexOf(rule);
+      const earlier = STATUS_RULES.slice(0, at).find(r => r.platform === rule.platform && r.state !== rule.state && !r.test
+        && (r.all ? r.all.every(loose) : r.any.some(group => group.every(loose))));
+      if (earlier) { rule = earlier; tolerant = true; }
+    } else {
+      rule = tolerantRule(lines);
+      tolerant = !!rule;
     }
-    return { platform: rule.platform, state: rule.state, store: statusStore(lines, rule) };
+    // A screen that looks like an offer card is never a pickup or drop-off step, even if a misread offer resembles one
+    // ("Pick up 3 orders" vs "Pick up order"): reading it as one could tick an offer as accepted (scorecard, Oct 18).
+    if (offerLike(lines) && (!rule || tolerant)) return { platform: detectPlatform(lines).platform || 'unknown', state: 'unread_offer', store: null };
+    if (!rule) return null;
+    // `tolerant`: matched despite OCR mistakes — the phone then waits for a second read before acting on it.
+    const out = { platform: rule.platform, state: rule.state, store: statusStore(lines, rule) };
+    if (tolerant) out.tolerant = true;
+    return out;
   }
 
   /* An offer card Lumen can't read: a big pay amount in the lower part of the screen with a distance just around it
    * (Oct 17 2026: safety net for app redesigns; the DoorDash food bank card, Oct 15, went unread with no warning). */
   function offerLike(lines) {
-    const pay = lines.filter(l => l.y > 0.35 && l.h >= 0.02 && /^\$\s?\d{1,3}\.\d{2}\b/.test(l.text)).sort((a, b) => b.h - a.h)[0];
+    // The pay is the one big number: on every real card it is printed at least 1.7× the size of the other text
+    // (dashboards like Gridwise list several same-size amounts). __APP_NAME__'s own screens and banners are never offers.
+    const sizes = lines.map(l => l.h).sort((a, b) => a - b), median = sizes[Math.floor(sizes.length / 2)] || 0;
+    const pay = lines.filter(l => l.y > 0.35 && l.h >= 0.026 && l.h >= 1.5 * median && /^\$\s?\d{1,3}\.\d{2}\b/.test(l.text))
+      .sort((a, b) => b.h - a.h)[0];
     if (!pay) return false;
-    // "10.2 mi" next to the pay, or Grubhub's number-over-label stats ("miles" on its own line, above or below the pay).
+    if (lines.some(l => l.y > 0.2 && /\/mi\b|\/hr\b|Accept if return/i.test(l.text))) return false;
+    // "10.2 mi" next to the pay, or Grubhub's number-over-label stats ("miles" as a label line, above or below the pay).
     return lines.some(l => l.y > pay.y - 0.05 && l.y < pay.y + 0.25 && /\b\d{1,3}(\.\d{1,2})?\s*(mi|miles)\b/i.test(l.text))
-      || lines.some(l => Math.abs(l.y - pay.y) < 0.25 && /(^|\s)miles?(\s|$)/i.test(l.text));
+      || lines.some(l => Math.abs(l.y - pay.y) < 0.25 && /^((miles?|orders?|minutes?|mins?)\s*)+$/i.test(l.text));
   }
 
   /* Uber's navigation bar at the bottom: "5 min" and "2.2 mi" side by side, then where to. Returns that line when it's
    * a store (not "Deliver to …"), else null. OCR may read the digits as I/O ("IO min") or add an icon glyph ("0 1.4 mi"). */
   function uberNavStore(lines) {
-    const minutes = lines.find(l => l.y > 0.75 && /^[\dIOl]{1,3} ?min$/.test(l.text));
+    // Also when OCR joined the two ("5 min 2.2 mi") or put a glyph between them.
+    const both = lines.find(l => l.y > 0.75 && /^[\dIOl]{1,3} ?min\b.*\b\d{1,3}([.,]\d)? ?mi$/.test(l.text));
+    const minutes = both || lines.find(l => l.y > 0.75 && /^[\dIOl]{1,3} ?min$/.test(l.text));
     if (!minutes) return null;
-    const miles = lines.find(l => Math.abs(l.y - minutes.y) < 0.02 && l !== minutes && /(^|\s)\d{1,3}(\.\d)? ?mi$/.test(l.text));
+    const miles = both || lines.find(l => Math.abs(l.y - minutes.y) < 0.02 && l !== minutes && /(^|\s)\d{1,3}([.,]\d)? ?mi$/.test(l.text));
     if (!miles) return null;
     const next = lines.filter(l => l.y > minutes.y + 0.01 && l.y < minutes.y + 0.08).sort((a, b) => a.y - b.y)[0];
-    if (!next || /^Deliver to\b/i.test(next.text) || !/[A-Za-z]{2}/.test(next.text)) return null;
+    if (!next || !/[A-Za-z]{2}/.test(next.text)) return null;
+    // Not "Deliver to …" (even misread), not a street address (Grubhub's map lists one under "2 min • 0.8 mi"), and not
+    // on Grubhub's or DoorDash's own map (scorecard, Oct 18).
+    if (hasText([next], /^Deliver to\b/i) || squash(next.text).startsWith('dellv') || isAddress(next.text)) return null;
+    if (lines.some(l => /mapbox|^Arriving at$|^sos$/i.test(l.text)) || hasText(lines, /^Arriving at$/i)) return null;
+    // A store name, not a clock time or a map control; and not on Google/Apple Maps or Waze, whose bottom bars also show
+    // minutes and miles (scorecard, Oct 18: a noisy Waze bar under harsh OCR noise).
+    if (!/[A-Za-z]{3}/.test(next.text.replace(/\b[AP]\.?M\b/gi, '')) || /^\d{1,2}[:.]\d{2}\b/.test(next.text)) return null;
+    if (lines.some(l => /^(Exit|Re-?center|End( Route)?|arrival|ETA|Fastest route|Overview|Mute|GO)$/i.test(l.text))) return null;
     return next.text;
   }
 
