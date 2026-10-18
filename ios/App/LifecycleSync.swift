@@ -12,10 +12,13 @@ final class LifecycleSync {
     static let shared = LifecycleSync()
     weak var model: AppModel?
     private var lastState: [String: String] = [:]
+    /// When each app was last seen waiting for offers: an offer shown before that was passed on, never accepted later.
+    private var lastAvailable: [String: Date] = [:]
 
     func received(_ signal: LifecycleSignal, at now: Date = Date()) {
         let previous = lastState[signal.platform]
         lastState[signal.platform] = signal.state
+        if signal.state == "available" { lastAvailable[signal.platform] = now; pendingAccept[signal.platform] = nil }
         guard AutoSteps.isEnabled else { return }
         let p = signal.platform
         switch signal.state {
@@ -77,11 +80,40 @@ final class LifecycleSync {
         return true
     }
 
+    /// A late accept waiting for a second, different order screen from the same app (user, Oct 18: a chat on the phone
+    /// quoting the apps' buttons produced one false step, and a declined offer was marked accepted 10 minutes later).
+    private var pendingAccept: [String: (offerId: String, states: Set<String>, firstState: String, firstAt: Date)] = [:]
+
     private func acceptLatestOffer(_ platform: String, _ now: Date, within window: TimeInterval = 600) {
+        let state = lastState[platform] ?? ""
         guard let offer = model?.offers.last(where: { offer in
             offer.platform == platform && now.timeIntervalSince(offer.seenAt) < window
                 && TripStore.shared.trip(for: offer.offerId ?? offer.id) == nil && !DemoData.isDemo(offer.offerId)
-        }) else { return }
+                // The app went back to waiting for offers after this one: it was declined or expired.
+                && offer.seenAt > (lastAvailable[platform] ?? .distantPast)
+        }) else { pendingAccept[platform] = nil; return }
+        let offerId = offer.offerId ?? offer.id
+        // The usual case — the pickup screen within 10 minutes of the offer — accepts at once. Anything later needs two
+        // different order screens from that app (e.g. at the store, then heading to the customer).
+        if !(state == "heading_to_store" && now.timeIntervalSince(offer.seenAt) <= 600) {
+            var pending = pendingAccept[platform]
+            if pending?.offerId != offerId || now.timeIntervalSince(pending?.firstAt ?? now) > window { pending = nil }
+            if pending == nil {
+                pendingAccept[platform] = (offerId, [state], state, now)
+                return
+            }
+            guard let first = pending, !first.states.contains(state) else { return }
+            pendingAccept[platform] = nil
+            accept(offer, now)
+            // The first screen's step happened then, not now.
+            if first.firstState == "at_store" { step(.arrivedStore, platform, first.firstAt, inferred: false) }
+            return
+        }
+        pendingAccept[platform] = nil
+        accept(offer, now)
+    }
+
+    private func accept(_ offer: LiveOffer, _ now: Date) {
         // Found late (minutes after the offer): it was accepted right after it was shown, not now.
         let late = now.timeIntervalSince(offer.seenAt) > 120
         TripStore.shared.accept(TripOfferInfo(offer), at: late ? offer.seenAt.addingTimeInterval(20) : now,

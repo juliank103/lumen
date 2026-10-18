@@ -127,8 +127,15 @@
       for (const w of m.words) {
         for (const t of texts) {
           let d = Infinity;
+          // A label without numbers never matches text with one ("Pick up 3 orders" is not "Pick up order"); 0/1/5/8
+          // are folded to letters already, so these are real numbers, not misread letters.
+          // (Whole-button labels only: "Deliver by 6:52 PM" legitimately carries a time.)
+          if (w.whole && /[2-79]/.test(t.sq) && !/[2-79]/.test(w.sq)) continue;
           if (w.whole) {
-            if (t.sq.length <= w.sq.length * 1.4 + 2) d = Math.min(editDistance(t.sq, w.sq), containsDistance(t.sq, w.sq) + (t.sq.length > w.sq.length + 2 ? 1 : 0));
+            // A whole-line label: close to the line, or inside it with at most 3 stray characters ("e Leaving", "Got order >"),
+            // never with a whole extra word ("Pick up from" is not the "Pick up" button).
+            if (t.sq.length <= w.sq.length * 1.4 + 2) d = editDistance(t.sq, w.sq);
+            if (t.sq.length <= w.sq.length + 3) d = Math.min(d, containsDistance(t.sq, w.sq));
           } else if (t.sq.length >= w.sq.length - w.tol) d = containsDistance(t.sq, w.sq);
           if (d <= w.tol && d + 0.5 < best) best = d + 0.5;
         }
@@ -336,9 +343,28 @@
 
   /* `options.withRouting` adds `routing` queries for a live return estimate: the Uber drop-off cross-street and town
    * and the restaurant address or name. They exist only for an immediate map lookup and must never be stored. */
+  /* A page of text — a chat, notes, a web page — not an app screen (user, Oct 18: reading this conversation on the phone
+   * gave false steps and a late accept). Real delivery screens, all 59 + 15 captured, have at most 2 lines of 7+ words,
+   * 3 lines of 40+ characters, and 4 sentence-like lines; a page of text has many more. */
+  function documentLike(lines) {
+    const words = t => t.split(/\s+/).filter(w => /[A-Za-z]{2}/.test(w)).length;
+    const sevenWords = lines.filter(l => words(l.text) >= 7).length;
+    const long = lines.filter(l => l.text.length >= 40).length;
+    const prose = lines.filter(l => /[a-z]{3,}\s+[a-z]{2,}\s+[a-z]{2,}\s+[a-z]{2,}/.test(l.text)).length;
+    // Phrases in a pair of quotes ("Deliver to", “Complete pickup”): text quoting the apps, never the apps themselves.
+    const quoted = lines.filter(l => /["“][A-Za-z$][^"”]{2,}["”]/.test(l.text)).length;
+    return sevenWords >= 4 || long >= 6 || prose >= 7 || quoted >= 2;
+  }
+
   function readScreen(rawLines, options) {
     const lines = normalizeLines(rawLines);
-    const detected = detectPlatform(lines), pay = findPay(lines);
+    if (documentLike(lines)) return { readerVersion: READER_VERSION, kind: 'unrecognized', platform: null, document: true };
+    const detected = detectPlatform(lines);
+    let pay = findPay(lines);
+    // The pay on a real card is the big number (≥1.7× the typical text on every captured card); the same lines quoted
+    // in a chat are body-size text (Oct 18).
+    const sizes = lines.map(l => l.h).sort((a, b) => a - b), median = sizes[Math.floor(sizes.length / 2)] || 0;
+    if (pay && pay.line.h < 1.3 * median) pay = null;
     if (!detected.platform || !pay) return { readerVersion: READER_VERSION, kind: 'unrecognized', platform: detected.platform };
     const card = lines.filter(l => l.y >= pay.line.y - 0.1);
     const f = { payCents: pay.cents, milesText: null, appMinutes: null, merchants: [], dropoffArea: null, orderCount: null,
@@ -745,11 +771,28 @@
     const lines = normalizeLines(rawLines);
     const offer = readScreen(rawLines);
     if (offer.kind === 'offer') return { platform: offer.platform, state: 'offer', store: null };
+    if (documentLike(lines)) return null;
     if (lines.some(l => /^Early look\b|Early look • Order in progress/i.test(l.text))) return { platform: 'uber_eats', state: 'offer', store: null };
     const exact = re => exactText(lines, re), loose = re => hasText(lines, re);
+    // Wording from 2 apps, or from 3 different steps, on one screen is a page about the apps (a chat or notes quoting
+    // their buttons), never an app screen: every real one shows 1 app and at most 2 steps (Oct 18).
+    const matched = STATUS_RULES.filter(r => (r.test ? r.test(lines) : r.all ? r.all.every(exact) : r.any.some(group => group.every(exact))));
+    if (new Set(matched.map(r => r.platform)).size >= 2 || new Set(matched.map(r => r.state)).size >= 3) return null;
+    // Two steps on one real screen are always neighbours (heading to the store + navigating, heading to + at the
+    // customer, at the customer + delivered…); "at the store" with "at the customer", or "waiting for offers" with an
+    // order step, is a list about the apps (Oct 18).
+    const steps = Array.from(new Set(matched.map(r => r.state)));
+    const NEIGHBOURS = ['heading_to_store|navigating', 'at_store|heading_to_store', 'at_store|navigating',
+      'heading_to_customer|navigating', 'at_customer|heading_to_customer', 'at_customer|navigating', 'at_customer|delivered',
+      'delivered|heading_to_customer'];
+    if (steps.length === 2 && !NEIGHBOURS.includes(steps.slice().sort().join('|'))) return null;
+    // Same for loose matches across steps (quoted, misspelt labels): 3 different steps at once is a page about them.
+    const looseSteps = new Set(STATUS_RULES.filter(r => !r.test && (r.all ? r.all.every(loose) : r.any.some(group => group.every(loose))))
+      .map(r => r.state));
+    if (looseSteps.size >= 3) return null;
     // Exact wording first, in rule order (as before); else the closest tolerant match.
     let rule = STATUS_RULES.find(r => (r.test ? r.test(lines) : r.all ? r.all.every(exact) : r.any.some(group => group.every(exact))));
-    let tolerant = false;
+    let tolerant = false, noExact = false;
     if (rule) {
       // An earlier (more specific) rule of the same app whose wording is there but misread wins: Grubhub's drop-off
       // screen shows "Take drop-off photo" and, once done, "marked as delivered" (scorecard, Oct 18).
@@ -760,10 +803,14 @@
     } else {
       rule = tolerantRule(lines);
       tolerant = !!rule;
+      noExact = true;
     }
     // A screen that looks like an offer card is never a pickup or drop-off step, even if a misread offer resembles one
     // ("Pick up 3 orders" vs "Pick up order"): reading it as one could tick an offer as accepted (scorecard, Oct 18).
     if (offerLike(lines) && (!rule || tolerant)) return { platform: detectPlatform(lines).platform || 'unknown', state: 'unread_offer', store: null };
+    // Offer-card wording (2+ of an app's offer markers) without a big pay is a quoted offer (a chat); a loose step match
+    // there means nothing (Oct 18).
+    if (rule && noExact && detectPlatform(lines).platform) return null;
     if (!rule) return null;
     // `tolerant`: matched despite OCR mistakes — the phone then waits for a second read before acting on it.
     const out = { platform: rule.platform, state: rule.state, store: statusStore(lines, rule) };
@@ -774,6 +821,7 @@
   /* An offer card Lumen can't read: a big pay amount in the lower part of the screen with a distance just around it
    * (Oct 17 2026: safety net for app redesigns; the DoorDash food bank card, Oct 15, went unread with no warning). */
   function offerLike(lines) {
+    if (documentLike(lines)) return false;
     // The pay is the one big number: on every real card it is printed at least 1.7× the size of the other text
     // (dashboards like Gridwise list several same-size amounts). __APP_NAME__'s own screens and banners are never offers.
     const sizes = lines.map(l => l.h).sort((a, b) => a - b), median = sizes[Math.floor(sizes.length / 2)] || 0;

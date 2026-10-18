@@ -7,6 +7,17 @@ struct TripCard: View {
     let trip: Trip
     @ScaledMetric(relativeTo: .largeTitle) private var clockSize: CGFloat = 42
 
+    /// Predicted $/hr for the trip from each offer's verdict (incl. the drive back). Stacked orders share their time, so
+    /// the trip takes about as long as its longest order: all their pay over that time. Nil without a prediction.
+    private var predictedHourly: Int? {
+        let hours = trip.orders.compactMap { o -> Double? in
+            guard let hourly = o.predictedHourlyCents, hourly > 0 else { return nil }
+            return Double(o.payCents) / Double(hourly)
+        }
+        guard hours.count == trip.orders.count, let longest = hours.max(), longest > 0 else { return nil }
+        return Int((Double(trip.orders.reduce(0) { $0 + $1.payCents }) / longest).rounded())
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
@@ -20,11 +31,12 @@ struct TripCard: View {
                     Text(TripFormat.clock(trip.elapsed(context.date)))
                         .font(.system(size: clockSize, weight: .heavy, design: .rounded)).monospacedDigit()
                     Spacer()
-                    if let pace = trip.paceCents(context.date) {
+                    // The offer's predicted $/hr (user, Oct 18: the running "so far" pace read $253/hr six minutes in).
+                    if let predicted = predictedHourly {
                         VStack(alignment: .trailing, spacing: 0) {
-                            Text(TripFormat.hourly(pace)).font(.title3.weight(.heavy))
-                                .foregroundStyle(pace >= 2500 ? Color.green : Color.orange)
-                            Text("$/hr so far").font(.caption2).foregroundStyle(.secondary)
+                            Text(TripFormat.hourly(predicted)).font(.title3.weight(.heavy))
+                                .foregroundStyle(predicted >= RulesStore.current.hourlyTargetCents ? Color.green : Color.orange)
+                            Text("predicted $/hr").font(.caption2).foregroundStyle(.secondary)
                         }
                     }
                 }
