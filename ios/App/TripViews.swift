@@ -46,6 +46,51 @@ struct TripCard: View {
     }
 }
 
+/// The order's stages as a line of checkpoints (user, Oct 18): accepted, then each store (arrived, picked up), then each
+/// drop-off (arrived, delivered). Done ones fill in, the next one is ringed, and the line between them fills as it goes.
+struct OrderCheckpoints: View {
+    let trip: Trip
+    let order: Trip.Order
+
+    struct Stage { let label: String; let done: Bool }
+
+    private var stages: [Stage] {
+        var list = [Stage(label: "Accepted", done: true)]
+        let multi = order.stores.count > 1
+        for (stop, store) in order.stores.enumerated() {
+            list.append(Stage(label: multi ? "At \(store)" : "At the store", done: trip.has(.arrivedStore, order.offerId, stop)))
+            list.append(Stage(label: multi ? "Picked up at \(store)" : "Picked up", done: trip.has(.leftStore, order.offerId, stop)))
+        }
+        let arrived = trip.count(.arrivedDropoff, order.offerId), delivered = trip.count(.delivered, order.offerId)
+        for d in 0..<max(1, order.dropoffs) {
+            let n = order.dropoffs > 1 ? " \(d + 1)" : ""
+            list.append(Stage(label: "At drop-off" + n, done: arrived > d || delivered > d))
+            list.append(Stage(label: "Delivered" + n, done: delivered > d))
+        }
+        if order.completed { return list.map { Stage(label: $0.label, done: true) } }
+        return list
+    }
+
+    var body: some View {
+        let stages = self.stages
+        let next = stages.firstIndex { !$0.done }
+        HStack(spacing: 0) {
+            ForEach(Array(stages.enumerated()), id: \.offset) { index, stage in
+                if index > 0 {
+                    Rectangle().fill(stage.done ? Theme.purple : Color.secondary.opacity(0.3)).frame(height: 3)
+                }
+                ZStack {
+                    Circle().fill(stage.done ? Theme.purple : Color.clear).frame(width: 12, height: 12)
+                    Circle().stroke(stage.done || index == next ? Theme.purple : Color.secondary.opacity(0.4), lineWidth: index == next ? 2.5 : 1.5)
+                        .frame(width: index == next ? 15 : 12, height: index == next ? 15 : 12)
+                }
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(stages.filter(\.done).count) of \(stages.count) steps done" + (next.map { ", next: " + stages[$0].label } ?? ""))
+    }
+}
+
 /// One order inside the trip: app, pay, stores and drop-offs done, and a menu for unassign/cancel/count fixes.
 /// Tap it to see and change its details — pickups, stores, drop-offs, pay (user, Oct 18).
 struct OrderProgress: View {
@@ -65,6 +110,7 @@ struct OrderProgress: View {
                         Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
                     }
                     Text(order.stores.joined(separator: " + ")).font(.subheadline.weight(.semibold)).lineLimit(1)
+                    OrderCheckpoints(trip: trip, order: order).padding(.vertical, 4)
                     Text(progress).font(.caption).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

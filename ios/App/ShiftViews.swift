@@ -32,6 +32,8 @@ struct ShiftSummaryCard: View {
             // On a trip, one line is enough (trim pass): the trip card is what matters while driving.
             HStack {
                 ShiftClock(shift: shift).foregroundStyle(.secondary)
+                // Running shift miles next to the time (user, Oct 18).
+                Text(ShiftFormat.miles(m.miles.total)).foregroundStyle(.secondary).monospacedDigit()
                 Spacer()
                 Text(ShiftFormat.money(m.earningsCents) + " · " + ShiftFormat.rate(m.shiftHourlyCents, "hr")).monospacedDigit()
             }
@@ -50,6 +52,7 @@ struct ShiftSummaryCard: View {
                         // Earnings ÷ the shift clock at the last delivery (user, Oct 15); "—" until the first one.
                         Text(ShiftFormat.rate(m.shiftHourlyCents, "hr")).font(.title3.weight(.semibold))
                         ShiftClock(shift: shift).font(.subheadline).foregroundStyle(.secondary)
+                        Text(ShiftFormat.miles(m.miles.total)).font(.subheadline).foregroundStyle(.secondary).monospacedDigit()
                     }
                 }
                 GoalBar(metrics: m, editing: $editingGoal)
