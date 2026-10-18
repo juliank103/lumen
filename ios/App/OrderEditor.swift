@@ -2,8 +2,17 @@ import SwiftUI
 
 struct OrderEditTarget: Identifiable { let offerId: String; var id: String { offerId } }
 
-/// Fixes a taken order by hand (user, Oct 15: "I'm trying to edit the time it took me to complete this order and I
-/// can't"): app, pay, outcome, accepted and delivered times, and store names. Totals and shift numbers follow.
+/// One pickup in the editor: where it came from in the saved order (nil = added here) and its name.
+struct StoreEdit: Identifiable, Equatable {
+    let id = UUID()
+    let from: Int?
+    var name: String
+}
+
+/// Views and fixes an order (user, Oct 15: edit a finished order's time and pay; Oct 18: "tap the order you're
+/// currently on and view/edit the details — how many pickups, drop-offs, what stores"). App, pay, pickups (add, remove,
+/// rename, searched in the restaurant list), drop-offs, accepted time; for a finished order also the outcome and the
+/// delivered time. Totals, shift numbers, and the trip's next steps follow; edits to the current order can be undone.
 struct OrderEditor: View {
     @Environment(\.dismiss) private var dismiss
     let offerId: String
@@ -12,7 +21,10 @@ struct OrderEditor: View {
     @State private var outcome = "completed"
     @State private var acceptedAt = Date()
     @State private var endedAt = Date()
-    @State private var stores: [String] = []
+    @State private var stores: [StoreEdit] = []
+    @State private var dropoffs = 1
+    @State private var minimumDropoffs = 1
+    @State private var delivered = 0
     @State private var finished = false
     @State private var loaded = false
     /// The stored outcome ("cancelled by customer"), kept when the picker isn't changed.
@@ -39,6 +51,37 @@ struct OrderEditor: View {
                     }
                 }
                 Section {
+                    ForEach($stores) { $store in
+                        let index = stores.firstIndex(where: { $0.id == store.id }) ?? 0
+                        StoreField(prompt: stores.count == 1 ? "Store" : "Store \(index + 1)", text: $store.name, platform: platform)
+                    }
+                    if stores.count < 6 {
+                        Button { stores.append(StoreEdit(from: nil, name: "")) } label: { Label("Add a store", systemImage: "plus") }
+                    }
+                    if stores.count > 1 {
+                        Menu {
+                            ForEach(Array(stores.enumerated()), id: \.element.id) { index, store in
+                                Button(store.name.isEmpty ? "Store \(index + 1)" : store.name, role: .destructive) {
+                                    stores.removeAll { $0.id == store.id }
+                                }
+                            }
+                        } label: {
+                            Label("Remove a store", systemImage: "minus").foregroundStyle(.red)
+                        }
+                    }
+                } header: {
+                    Text(stores.count == 1 ? "Pickup" : "Pickups (\(stores.count))")
+                } footer: {
+                    Text("Several orders from one store are one pickup.")
+                }
+                Section {
+                    Stepper("Drop-offs: \(dropoffs)", value: $dropoffs, in: minimumDropoffs...8)
+                } footer: {
+                    if !finished && delivered > 0 {
+                        Text("\(delivered) delivered so far." + (dropoffs == delivered ? " Saving completes the order." : ""))
+                    }
+                }
+                Section {
                     DatePicker("Accepted", selection: $acceptedAt, in: ...Date())
                     if finished {
                         DatePicker(outcome == "completed" ? "Delivered" : "Ended", selection: $endedAt, in: acceptedAt...max(acceptedAt, Date()))
@@ -48,32 +91,20 @@ struct OrderEditor: View {
                         Text("Took \(Int((max(60, endedAt.timeIntervalSince(acceptedAt)) / 60).rounded())) min.")
                     }
                 }
-                if !stores.isEmpty {
-                    Section {
-                        ForEach(stores.indices, id: \.self) { index in
-                            StoreField(prompt: "Store", text: $stores[index], platform: platform)
-                        }
-                        if finished, stores.count > 1 {
-                            Button("Remove the last store", role: .destructive) { stores.removeLast() }
-                        }
-                    } header: {
-                        Text(stores.count == 1 ? "Store" : "Stores")
-                    } footer: {
-                        if finished, stores.count > 1 { Text("For several orders picked up at one store, keep just that store.") }
-                    }
-                }
             }
-            .navigationTitle("Edit order")
+            .navigationTitle(finished ? "Edit order" : "Current order")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        TripStore.shared.editOrder(offerId, platform: platform, payCents: cents ?? 0, ended: finished ? (outcome == picked(originalOutcome) ? originalOutcome : outcome) : nil,
-                                                   acceptedAt: acceptedAt, endedAt: finished ? endedAt : nil, stores: stores)
+                        TripStore.shared.editOrder(offerId, platform: platform, payCents: cents ?? 0,
+                                                   ended: finished ? (outcome == picked(originalOutcome) ? originalOutcome : outcome) : nil,
+                                                   acceptedAt: acceptedAt, endedAt: finished ? endedAt : nil,
+                                                   storeEdits: stores.map { ($0.from, $0.name) }, dropoffs: dropoffs)
                         dismiss()
                     }
-                    .disabled(cents == nil)
+                    .disabled(cents == nil || stores.isEmpty)
                 }
             }
             .onAppear(perform: load)
@@ -92,7 +123,8 @@ struct OrderEditor: View {
     }
 
     private func load() {
-        guard !loaded, let order = TripStore.shared.trip(for: offerId)?.orders.first(where: { $0.offerId == offerId }) else { return }
+        guard !loaded, let trip = TripStore.shared.trip(for: offerId),
+              let order = trip.orders.first(where: { $0.offerId == offerId }) else { return }
         loaded = true
         platform = order.platform
         payText = String(format: "%.2f", Double(order.payCents) / 100)
@@ -101,6 +133,10 @@ struct OrderEditor: View {
         outcome = picked(order.ended)
         acceptedAt = order.acceptedAt
         endedAt = order.endedAt ?? Date()
-        stores = order.stores
+        // Placeholder names ("Store 2") start empty so the field shows the restaurant search.
+        stores = order.stores.enumerated().map { StoreEdit(from: $0.offset, name: $0.element.hasPrefix("Store ") ? "" : $0.element) }
+        dropoffs = order.dropoffs
+        delivered = trip.count(.delivered, offerId)
+        minimumDropoffs = max(1, trip.count(.arrivedDropoff, offerId), delivered)
     }
 }

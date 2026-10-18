@@ -103,7 +103,7 @@ struct Trip: Codable, Identifiable, Equatable {
         let id: String
         let kind: StepKind
         let offerId: String
-        let stop: Int
+        var stop: Int
         let label: String
         let at: Date
         /// Store arrivals only: the phone's position there (a business location, for the restaurant list). Never set for
@@ -411,10 +411,20 @@ final class TripStore: ObservableObject {
         save()
     }
 
-    /// Corrects an order by hand (user, Oct 15: "I should be able to edit details of … completed orders"): app, pay,
-    /// outcome, accepted and ended times, store names. The trip's span follows its orders; shift totals are redone.
+    /// Corrects or completes an order by hand (user, Oct 15: edit a finished order's times and pay; Oct 18: edit the
+    /// current order's pickups, drop-offs, and stores). `storeEdits`: the pickups in their new order, each with its
+    /// index in the saved order (nil = added); removed pickups lose their store steps and the rest are renumbered.
+    /// `dropoffs` never goes below those already reached; set to the number delivered, an order in progress completes.
+    /// Edits to the current order can be undone; the trip ends if the edit finished its last order.
     func editOrder(_ offerId: String, platform: String, payCents: Int, ended: String?, acceptedAt: Date, endedAt: Date?,
-                   stores: [String], at now: Date = Date()) {
+                   storeEdits: [(from: Int?, name: String)], dropoffs: Int, at now: Date = Date()) {
+        let names = storeEdits.enumerated().map { index, edit -> String in
+            let name = edit.name.trimmingCharacters(in: .whitespaces)
+            return name.isEmpty ? "Store \(index + 1)" : name
+        }
+        guard !names.isEmpty else { return }
+        var newIndex: [Int: Int] = [:]
+        for (index, edit) in storeEdits.enumerated() { if let from = edit.from { newIndex[from] = index } }
         func apply(_ trip: inout Trip) -> Bool {
             guard let index = trip.orders.firstIndex(where: { $0.offerId == offerId }) else { return false }
             var order = trip.orders[index]
@@ -428,34 +438,45 @@ final class TripStore: ObservableObject {
                 order.ended = ended
                 order.endedAt = min(now, max(endedAt ?? order.acceptedAt, order.acceptedAt.addingTimeInterval(60)))
             }
-            let names = stores.map { $0.trimmingCharacters(in: .whitespaces) }
-            let fewer = order.ended != nil && !names.isEmpty && names.count < order.stores.count
-            if names.count == order.stores.count || fewer, names.allSatisfy({ !$0.isEmpty }) {
-                if fewer {
-                    trip.steps.removeAll { $0.offerId == offerId && $0.stop >= names.count && ($0.kind == .arrivedStore || $0.kind == .leftStore) }
-                }
-                order.stores = names
-                order.merchant = names.first
+            trip.steps = trip.steps.compactMap { step in
+                guard step.offerId == offerId, step.kind == .arrivedStore || step.kind == .leftStore else { return step }
+                guard let moved = newIndex[step.stop] else { return nil }
+                var step = step
+                step.stop = moved
+                return step
+            }
+            order.stores = names
+            order.merchant = names.first
+            let delivered = trip.count(.delivered, offerId)
+            order.dropoffs = max(dropoffs, 1, trip.count(.arrivedDropoff, offerId), delivered)
+            if order.ended == nil, delivered >= order.dropoffs {
+                order.ended = "completed"
+                order.endedAt = trip.steps.filter { $0.offerId == offerId && $0.kind == .delivered }.map(\.at).max() ?? now
             }
             trip.orders[index] = order
             trip.startedAt = min(trip.orders.map(\.acceptedAt).min() ?? trip.startedAt, trip.steps.map(\.at).min() ?? .distantFuture)
             if trip.endedAt != nil {
                 trip.endedAt = max(trip.orders.compactMap(\.endedAt).max() ?? trip.startedAt, trip.steps.map(\.at).max() ?? .distantPast)
             }
-            var fields: [String: Any] = ["payCents": order.payCents, "platform": platform,
+            var fields: [String: Any] = ["payCents": order.payCents, "platform": platform, "stores": names.count, "dropoffs": order.dropoffs,
                                          "acceptedAt": Self.localFormatter.string(from: order.acceptedAt)]
             if let endedAt = order.endedAt { fields["endedAt"] = Self.localFormatter.string(from: endedAt) }
             if let outcome = order.ended { fields["ended"] = outcome }
             OfferJournal.appendEvents([event("order_edited", offerId, now, trip.id, fields)])
             return true
         }
-        if var trip = active, apply(&trip) { active = trip }
-        else if let index = history.lastIndex(where: { $0.orders.contains { $0.offerId == offerId } }) {
+        if var trip = active, trip.orders.contains(where: { $0.offerId == offerId }) {
+            let before = active, historyCount = history.count
+            guard apply(&trip) else { return }
+            var events: [[String: Any]] = []
+            finish(&trip, now, &events)
+            commit(before: before, historyCount: historyCount, events: events)
+        } else if let index = history.lastIndex(where: { $0.orders.contains { $0.offerId == offerId } }) {
             var trip = history[index]
             if apply(&trip) { history[index] = trip }
             ShiftStore.shared.recomputeFinals(near: trip.startedAt)
+            save()
         }
-        save()
         ShiftStore.shared.refreshMetrics()
     }
 

@@ -47,22 +47,32 @@ struct TripCard: View {
 }
 
 /// One order inside the trip: app, pay, stores and drop-offs done, and a menu for unassign/cancel/count fixes.
+/// Tap it to see and change its details — pickups, stores, drop-offs, pay (user, Oct 18).
 struct OrderProgress: View {
     @ObservedObject private var store = TripStore.shared
     let trip: Trip
     let order: Trip.Order
+    @State private var editing = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    AppLogo(platform: order.platform, size: 22)
-                    Text(TripFormat.dollars(order.payCents)).font(.subheadline.weight(.bold))
-                    if let ended = order.ended { Text("· " + ended).font(.caption).foregroundStyle(.secondary) }
+            Button { editing = true } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        AppLogo(platform: order.platform, size: 22)
+                        Text(TripFormat.dollars(order.payCents)).font(.subheadline.weight(.bold))
+                        if let ended = order.ended { Text("· " + ended).font(.caption).foregroundStyle(.secondary) }
+                        Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                    }
+                    Text(order.stores.joined(separator: " + ")).font(.subheadline.weight(.semibold)).lineLimit(1)
+                    Text(progress).font(.caption).foregroundStyle(.secondary)
                 }
-                Text(order.stores.joined(separator: " + ")).font(.subheadline.weight(.semibold)).lineLimit(1)
-                Text(progress).font(.caption).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityHint("Shows the order's details to view or change")
+            .sheet(isPresented: $editing) { OrderEditor(offerId: order.offerId) }
             Spacer()
             if order.ended == nil {
                 Menu {
