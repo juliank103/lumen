@@ -19,7 +19,9 @@ enum Theme {
     }
 
     static func appName(_ platform: String) -> String {
-        ["doordash": "DoorDash", "uber_eats": "Uber Eats", "grubhub": "Grubhub"][platform] ?? platform
+        ["doordash": "DoorDash", "uber_eats": "Uber Eats", "grubhub": "Grubhub", "uber": "Uber", "instacart": "Instacart", "lyft": "Lyft",
+         "spark": "Spark", "shipt": "Shipt", "amazon_flex": "Amazon Flex"][platform]
+            ?? platform.replacingOccurrences(of: "_", with: " ").capitalized
     }
 }
 

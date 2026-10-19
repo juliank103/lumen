@@ -4,7 +4,9 @@ import Foundation
 /// earnings that aren't an order's pay. Totals come from core/shift.js `rangeMetrics` (extras count in earnings, expenses
 /// give net). Stored on the phone only; included in the export and restore.
 struct MoneyEntry: Codable, Identifiable, Equatable {
-    enum Kind: String, Codable { case expense, extra }
+    /// `imported` = a day's earnings from a Gridwise report (a daily total for one app: counts in earnings and the app share,
+    /// never in $/hr or $/mi, which need time and miles).
+    enum Kind: String, Codable { case expense, extra, imported }
     let id: String
     var kind: Kind
     var at: Date
@@ -44,6 +46,15 @@ final class EntryStore: ObservableObject {
         entries = (entries + added).sorted { $0.at < $1.at }
         save()
         return added.count
+    }
+
+    /// Removes everything imported from Gridwise (ids start "gw|"); returns how many.
+    @discardableResult
+    func removeImported() -> Int {
+        let before = entries.count
+        entries.removeAll { $0.id.hasPrefix("gw|") }
+        save()
+        return before - entries.count
     }
 
     var json: String { ShiftEngine.json(encodable: entries) }

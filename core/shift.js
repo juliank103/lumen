@@ -403,15 +403,24 @@
     const entries = (input.entries || []).filter(e => ms(e.at) >= a && ms(e.at) < b && valid(e.amountCents) && e.amountCents > 0)
       .sort((x, y) => ms(x.at) - ms(y.at));
     const extras = entries.filter(e => e.kind === 'extra'), expenses = entries.filter(e => e.kind === 'expense');
+    /* Daily totals imported from Gridwise (kind 'imported'): earnings and app share, but no time or miles behind them, so
+     * never in $/hr or $/mi. A day and app __APP_NAME__ tracked orders for itself uses those orders instead (no double count). */
+    const offset = input.offsetMinutes || 0;
+    const dayOf = at => new Date(ms(at) + offset * 60000).toISOString().slice(0, 10);
+    const trackedDays = new Set(orders.filter(o => o.ended === 'completed').map(o => dayOf(o.acceptedAt) + '|' + o.platform));
+    const importedAll = entries.filter(e => e.kind === 'imported');
+    const imported = importedAll.filter(e => !trackedDays.has(dayOf(e.at) + '|' + e.platform));
+    const importedCents = imported.reduce((t, e) => t + e.amountCents, 0);
     const extrasCents = extras.reduce((t, e) => t + e.amountCents, 0);
     const expensesCents = expenses.reduce((t, e) => t + e.amountCents, 0);
-    const earningsCents = completed.reduce((t, o) => t + (o.payCents || 0), 0) + extrasCents;
+    const trackedCents = completed.reduce((t, o) => t + (o.payCents || 0), 0) + extrasCents;
+    const earningsCents = trackedCents + importedCents;
     const byPlatform = {};
     for (const o of completed) {
       const p = byPlatform[o.platform] = byPlatform[o.platform] || { earningsCents: 0, completed: 0 };
       p.earningsCents += o.payCents || 0; p.completed++;
     }
-    for (const e of extras) {
+    for (const e of extras.concat(imported)) {
       if (!e.platform) continue;
       const p = byPlatform[e.platform] = byPlatform[e.platform] || { earningsCents: 0, completed: 0 };
       p.earningsCents += e.amountCents;
@@ -420,8 +429,9 @@
     const visits = storeVisits(input.trips).filter(v => ms(v.arrivedAt) >= a && ms(v.arrivedAt) < b);
     const finished = visits.filter(v => v.seconds !== null && !v.censored);
     return {
-      from, to, earningsCents, byPlatform, extrasCents, expensesCents, netCents: earningsCents - expensesCents,
-      entries: entries.map(e => ({ id: e.id, kind: e.kind, at: e.at, amountCents: e.amountCents, category: e.category || null,
+      from, to, earningsCents, byPlatform, extrasCents, importedCents, importedDays: new Set(imported.map(e => dayOf(e.at))).size,
+      expensesCents, netCents: earningsCents - expensesCents,
+      entries: entries.filter(e => e.kind !== 'imported' || imported.includes(e)).map(e => ({ id: e.id, kind: e.kind, at: e.at, amountCents: e.amountCents, category: e.category || null,
         platform: e.platform || null, note: e.note || null })),
       completed: completed.length,
       unassigned: orders.filter(o => o.ended === 'unassigned').length,
@@ -429,8 +439,8 @@
       onlineSeconds: Math.round(onlineSeconds), activeSeconds: Math.round(activeSeconds),
       idleSeconds: Math.round(Math.max(0, onlineSeconds - activeSeconds)),
       miles,
-      perOnlineHourCents: perHourOf(earningsCents, onlineSeconds), perActiveHourCents: perHourOf(earningsCents, activeSeconds),
-      perMileCents: miles.total >= 1 ? Math.round(earningsCents / miles.total) : null,
+      perOnlineHourCents: perHourOf(trackedCents, onlineSeconds), perActiveHourCents: perHourOf(trackedCents, activeSeconds),
+      perMileCents: miles.total >= 1 ? Math.round(trackedCents / miles.total) : null,
       restaurantWait: { visits: visits.length, finished: finished.length, atLeastCount: visits.filter(v => v.censored).length,
         averageMinutes: finished.length ? Math.round(finished.reduce((t, v) => t + v.seconds, 0) / finished.length / 6) / 10 : null },
       shiftIds: shifts.map(s => s.id)
@@ -614,7 +624,7 @@
         'per_online_hour', 'per_active_hour', 'per_mile', 'completed', 'unassigned', 'cancelled', 'avg_restaurant_wait_minutes', 'goal'], shifts),
       'restaurants.csv': toCSV(['id', 'name', 'other_names', 'apps', 'offers', 'visits', 'latitude', 'longitude'], restaurants),
       'expenses-and-other-earnings.csv': toCSV(['date', 'kind', 'category', 'app', 'amount', 'note'],
-        (data.entries || []).map(e => ({ date: t(e.at), kind: e.kind === 'expense' ? 'expense' : 'tip/bonus/other', category: e.category,
+        (data.entries || []).map(e => ({ date: t(e.at), kind: e.kind === 'expense' ? 'expense' : e.kind === 'imported' ? 'imported daily earnings' : 'tip/bonus/other', category: e.category,
           app: e.platform, amount: dollars(e.amountCents), note: e.note })))
     };
   }
@@ -759,14 +769,119 @@
     return result;
   }
 
+  // MARK: Gridwise import
+
+  /* Gridwise's CSV reports (user, Oct 19: "build a feature to allow myself and future users to import their data from
+   * gridwise"). Earnings report: Date,Category,Service,Amount,Notes — one row per day per service (daily totals, no
+   * hours or miles). Expenses report: Date,Category,Amount,Notes. Both become money entries: earnings as kind
+   * 'imported' (counted in earnings and the app share, not in $/hr or $/mi — there is no time or distance behind them),
+   * expenses as kind 'expense'. Ids are built from the row so importing the same report again adds nothing. */
+  function parseCSV(text) {
+    const rows = [];
+    let row = [], field = '', quoted = false;
+    const s = String(text || '').replace(/^﻿/, '');
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+      if (quoted) {
+        if (ch === '"') { if (s[i + 1] === '"') { field += '"'; i++; } else quoted = false; } else field += ch;
+      } else if (ch === '"') quoted = true;
+      else if (ch === ',') { row.push(field); field = ''; }
+      else if (ch === '\n' || ch === '\r') {
+        if (ch === '\r' && s[i + 1] === '\n') i++;
+        row.push(field); field = '';
+        if (row.some(c => c.trim() !== '')) rows.push(row);
+        row = [];
+      } else field += ch;
+    }
+    row.push(field);
+    if (row.some(c => c.trim() !== '')) rows.push(row);
+    return rows;
+  }
+
+  /* "2026-10-14" or "10/14/2026" → { y, m, d } (null when not a date). */
+  function parseDay(text) {
+    const t = String(text || '').trim();
+    let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(t);
+    let y, mo, d;
+    if (m) { y = +m[1]; mo = +m[2]; d = +m[3]; } else if ((m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.exec(t))) {
+      mo = +m[1]; d = +m[2]; y = +m[3] < 100 ? 2000 + +m[3] : +m[3];
+    } else return null;
+    if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+    return { y, m: mo, d, key: y + '-' + String(mo).padStart(2, '0') + '-' + String(d).padStart(2, '0') };
+  }
+  /* "$1,234.50", "(12.00)", "-12" → cents (absolute), or null. */
+  function parseMoney(text) {
+    const t = String(text || '').trim().replace(/[$,\s]/g, '').replace(/^\((.*)\)$/, '$1');
+    if (!/^-?\d+(\.\d{1,2})?$/.test(t)) return null;
+    return Math.round(Math.abs(parseFloat(t)) * 100);
+  }
+  const GRIDWISE_SERVICES = { doordash: 'doordash', ubereats: 'uber_eats', grubhub: 'grubhub', instacart: 'instacart', uber: 'uber',
+    lyft: 'lyft', spark: 'spark', shipt: 'shipt', amazonflex: 'amazon_flex', roadie: 'roadie', waitr: 'waitr', postmates: 'postmates' };
+  function gridwiseService(name) {
+    const key = String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    return GRIDWISE_SERVICES[key] || (key ? String(name).trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') : null);
+  }
+  const GRIDWISE_EXPENSES = { gas: 'Gas', fuel: 'Gas', charging: 'Charging', carwash: 'Car wash', maintenance: 'Maintenance',
+    parkingtolls: 'Parking & tolls', parking: 'Parking & tolls', tolls: 'Parking & tolls', phone: 'Phone', foodanddrink: 'Food & drinks',
+    foodanddrinks: 'Food & drinks', foodanddrinksandmeals: 'Food & drinks', other: 'Other' };
+  function gridwiseExpenseCategory(name) {
+    const raw = String(name || '').trim();
+    if (!raw) return 'Other';
+    const key = raw.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]/g, '');
+    return GRIDWISE_EXPENSES[key] || raw;
+  }
+
+  /* text: the CSV; options.offsetMinutes: the phone's offset (each day is stored at local noon so it stays on its day).
+   * → { kind: 'earnings' | 'expenses' | null, entries, skipped: [{ line, reason }], from, to, totals } */
+  function parseGridwise(text, options) {
+    const offset = (options && options.offsetMinutes) || 0;
+    const rows = parseCSV(text);
+    const out = { kind: null, entries: [], skipped: [], from: null, to: null,
+      totals: { earningsCents: 0, expensesCents: 0, byPlatform: {}, byCategory: {} } };
+    if (!rows.length) return out;
+    const header = rows[0].map(h => h.trim().toLowerCase());
+    const col = name => header.indexOf(name);
+    const iDate = col('date'), iAmount = col('amount'), iCategory = col('category'), iNotes = col('notes'), iService = col('service');
+    if (iDate < 0 || iAmount < 0) return out;
+    out.kind = iService >= 0 ? 'earnings' : 'expenses';
+    const seen = {};
+    rows.slice(1).forEach((r, index) => {
+      const line = index + 2;
+      const day = parseDay(r[iDate]), cents = parseMoney(r[iAmount]);
+      if (!day) { out.skipped.push({ line, reason: 'no date' }); return; }
+      if (cents === null) { out.skipped.push({ line, reason: 'no amount' }); return; }
+      if (cents === 0) { out.skipped.push({ line, reason: 'zero' }); return; }
+      const platform = out.kind === 'earnings' ? gridwiseService(r[iService]) : null;
+      if (out.kind === 'earnings' && !platform) { out.skipped.push({ line, reason: 'no service' }); return; }
+      const category = out.kind === 'expenses' ? gridwiseExpenseCategory(iCategory >= 0 ? r[iCategory] : '')
+        : (iCategory >= 0 && r[iCategory].trim() ? r[iCategory].trim() : 'Earnings');
+      const note = [out.kind === 'earnings' ? 'Gridwise' : null, iNotes >= 0 ? r[iNotes].trim() : ''].filter(Boolean).join(' · ') || null;
+      const base = 'gw|' + (out.kind === 'earnings' ? 'e' : 'x') + '|' + day.key + '|' + (platform || category) + '|' + cents;
+      seen[base] = (seen[base] || 0) + 1; // The same amount twice in a day stays two entries.
+      const at = new Date(Date.UTC(day.y, day.m - 1, day.d, 12, 0) - offset * 60000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+      out.entries.push({ id: base + '|' + seen[base], kind: out.kind === 'earnings' ? 'imported' : 'expense', at, amountCents: cents,
+        category, platform, note });
+      if (!out.from || day.key < out.from) out.from = day.key;
+      if (!out.to || day.key > out.to) out.to = day.key;
+      if (out.kind === 'earnings') {
+        out.totals.earningsCents += cents;
+        out.totals.byPlatform[platform] = (out.totals.byPlatform[platform] || 0) + cents;
+      } else {
+        out.totals.expensesCents += cents;
+        out.totals.byCategory[category] = (out.totals.byCategory[category] || 0) + cents;
+      }
+    });
+    return out;
+  }
+
   const json = f => (...args) => JSON.stringify(f(...args.map(a => (typeof a === 'string' ? JSON.parse(a) : a))));
   const api = { METERS_PER_MILE, SAME_PLACE_MILES, normalizeName, similarity, distanceMiles, emptyDb, matchRestaurant, updateRestaurants,
     mergeRestaurants, renameRestaurant, mergeSuggestions, storeVisits, restaurantStats, mealPeriod, shiftMetrics, toCSV, exportTables,
-    rangeMetrics, weekStats, dayPart, dominantPart, DAY_PARTS, zoneHeat, offerWorth,
+    rangeMetrics, weekStats, dayPart, dominantPart, DAY_PARTS, zoneHeat, offerWorth, parseGridwise, parseCSV,
     // JSON bridges for the iPhone (every argument is JSON text).
     updateRestaurantsJSON: json(updateRestaurants), mergeRestaurantsJSON: json(mergeRestaurants), renameRestaurantJSON: json(renameRestaurant),
     mergeSuggestionsJSON: json(mergeSuggestions), restaurantStatsJSON: json(restaurantStats), shiftMetricsJSON: json(shiftMetrics),
-    exportTablesJSON: json(exportTables), weekStatsJSON: json(weekStats), zoneHeatJSON: json(zoneHeat) };
+    exportTablesJSON: json(exportTables), weekStatsJSON: json(weekStats), zoneHeatJSON: json(zoneHeat), parseGridwiseJSON: json(parseGridwise) };
   root.Shift = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

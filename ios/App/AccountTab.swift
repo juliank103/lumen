@@ -81,6 +81,7 @@ struct AccountTab: View {
                 Section {
                     ExportButton()
                     RestoreButton()
+                    NavigationLink { GridwiseImportView() } label: { Label("Import from Gridwise", systemImage: "square.and.arrow.down.on.square") }
                     NavigationLink("Privacy") { PrivacyView() }
                 } header: {
                     HStack {

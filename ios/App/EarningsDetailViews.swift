@@ -238,6 +238,8 @@ func appColor(_ platform: String) -> Color {
     case "doordash": return Color(red: 1.0, green: 0.19, blue: 0.03)
     case "uber_eats": return Color(red: 0.02, green: 0.76, blue: 0.40)
     case "grubhub": return Color(red: 1.0, green: 0.50, blue: 0.0)
+    case "uber": return Color(red: 0.25, green: 0.25, blue: 0.28)
+    case "instacart": return Color(red: 0.26, green: 0.62, blue: 0.25)
     default: return .gray
     }
 }
