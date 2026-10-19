@@ -400,7 +400,7 @@
     const completed = orders.filter(o => o.ended === 'completed');
     /* Added by hand (user, Oct 15, Gridwise-style ＋): "extra" = tips, bonuses, and other earnings (counted in
      * earnings and its app's share); "expense" = costs, giving net earnings. */
-    const entries = (input.entries || []).filter(e => ms(e.at) >= a && ms(e.at) < b && valid(e.amountCents) && e.amountCents > 0)
+    const entries = (input.entries || []).filter(e => ms(e.at) >= a && ms(e.at) < b && valid(e.amountCents) && (e.amountCents > 0 || e.kind === 'mileage'))
       .sort((x, y) => ms(x.at) - ms(y.at));
     const extras = entries.filter(e => e.kind === 'extra'), expenses = entries.filter(e => e.kind === 'expense');
     /* Daily totals imported from Gridwise (kind 'imported'): earnings and app share, but no time or miles behind them, so
@@ -425,22 +425,37 @@
       const p = byPlatform[e.platform] = byPlatform[e.platform] || { earningsCents: 0, completed: 0 };
       p.earningsCents += e.amountCents;
     }
+    /* Gridwise's daily hours and miles (kind 'mileage'): hours join online time, miles join total miles (the deduction uses
+     * Gridwise's own amounts), and imported earnings on those days join $/hr and $/mi — there is time and distance behind
+     * them now. A day __APP_NAME__ tracked itself (a shift or an order that day) uses its own numbers instead. */
+    const ownDays = new Set(orders.map(o => dayOf(o.acceptedAt)));
+    for (const s of shifts) for (let t = ms(s.startedAt); t <= end(s); t += 12 * 3600000) ownDays.add(dayOf(new Date(t).toISOString()));
+    const mileage = entries.filter(e => e.kind === 'mileage' && !ownDays.has(dayOf(e.at)));
+    const importedSeconds = mileage.reduce((t, e) => t + (e.seconds || 0), 0);
+    const importedMilli = mileage.reduce((t, e) => t + (e.milliMiles || 0), 0);
+    const importedDeductionCents = mileage.reduce((t, e) => t + (e.amountCents || 0), 0);
+    const mileageDays = new Set(mileage.map(e => dayOf(e.at)));
+    const pacedCents = trackedCents + imported.filter(e => mileageDays.has(dayOf(e.at))).reduce((t, e) => t + e.amountCents, 0);
     const miles = milesIn(shifts, a, b);
+    miles.imported = Math.round(importedMilli / 100) / 10;
+    miles.total = Math.round((miles.total + importedMilli / 1000) * 10) / 10;
+    const online = onlineSeconds + importedSeconds;
     const visits = storeVisits(input.trips).filter(v => ms(v.arrivedAt) >= a && ms(v.arrivedAt) < b);
     const finished = visits.filter(v => v.seconds !== null && !v.censored);
     return {
       from, to, earningsCents, byPlatform, extrasCents, importedCents, importedDays: new Set(imported.map(e => dayOf(e.at))).size,
       expensesCents, netCents: earningsCents - expensesCents,
-      entries: entries.filter(e => e.kind !== 'imported' || imported.includes(e)).map(e => ({ id: e.id, kind: e.kind, at: e.at, amountCents: e.amountCents, category: e.category || null,
+      importedSeconds, importedMiles: miles.imported, importedDeductionCents,
+      entries: entries.filter(e => e.kind !== 'mileage' && (e.kind !== 'imported' || imported.includes(e))).map(e => ({ id: e.id, kind: e.kind, at: e.at, amountCents: e.amountCents, category: e.category || null,
         platform: e.platform || null, note: e.note || null })),
       completed: completed.length,
       unassigned: orders.filter(o => o.ended === 'unassigned').length,
       cancelled: orders.filter(o => typeof o.ended === 'string' && o.ended.indexOf('cancelled') === 0).length,
-      onlineSeconds: Math.round(onlineSeconds), activeSeconds: Math.round(activeSeconds),
-      idleSeconds: Math.round(Math.max(0, onlineSeconds - activeSeconds)),
+      onlineSeconds: Math.round(online), activeSeconds: Math.round(activeSeconds),
+      idleSeconds: Math.round(Math.max(0, onlineSeconds - activeSeconds)), // Imported hours have no idle/active split.
       miles,
-      perOnlineHourCents: perHourOf(trackedCents, onlineSeconds), perActiveHourCents: perHourOf(trackedCents, activeSeconds),
-      perMileCents: miles.total >= 1 ? Math.round(trackedCents / miles.total) : null,
+      perOnlineHourCents: perHourOf(pacedCents, online), perActiveHourCents: perHourOf(trackedCents, activeSeconds),
+      perMileCents: miles.total >= 1 ? Math.round(pacedCents / miles.total) : null,
       restaurantWait: { visits: visits.length, finished: finished.length, atLeastCount: visits.filter(v => v.censored).length,
         averageMinutes: finished.length ? Math.round(finished.reduce((t, v) => t + v.seconds, 0) / finished.length / 6) / 10 : null },
       shiftIds: shifts.map(s => s.id)
@@ -624,7 +639,7 @@
         'per_online_hour', 'per_active_hour', 'per_mile', 'completed', 'unassigned', 'cancelled', 'avg_restaurant_wait_minutes', 'goal'], shifts),
       'restaurants.csv': toCSV(['id', 'name', 'other_names', 'apps', 'offers', 'visits', 'latitude', 'longitude'], restaurants),
       'expenses-and-other-earnings.csv': toCSV(['date', 'kind', 'category', 'app', 'amount', 'note'],
-        (data.entries || []).map(e => ({ date: t(e.at), kind: e.kind === 'expense' ? 'expense' : e.kind === 'imported' ? 'imported daily earnings' : 'tip/bonus/other', category: e.category,
+        (data.entries || []).map(e => ({ date: t(e.at), kind: e.kind === 'expense' ? 'expense' : e.kind === 'imported' ? 'imported daily earnings' : e.kind === 'mileage' ? 'imported mileage (amount = deduction)' : 'tip/bonus/other', category: e.category,
           app: e.platform, amount: dollars(e.amountCents), note: e.note })))
     };
   }
@@ -833,6 +848,37 @@
 
   /* text: the CSV; options.offsetMinutes: the phone's offset (each day is stored at local noon so it stays on its day).
    * → { kind: 'earnings' | 'expenses' | null, entries, skipped: [{ line, reason }], from, to, totals } */
+  /* Gridwise's Mileage report: Date,Hours,Miles,Deduction Rate Cents/Mi,Deduction — one row per day (hours worked, miles
+   * driven, and the deduction Gridwise worked out at that day's rate). Becomes one 'mileage' entry per day: milliMiles,
+   * seconds, and amountCents = Gridwise's deduction (their rate changes during the year; it is kept as they computed it). */
+  function parseGridwiseMileage(rows, cols, offset, out) {
+    out.kind = 'mileage';
+    out.totals.miles = 0; out.totals.seconds = 0; out.totals.deductionCents = 0;
+    const seen = {};
+    rows.slice(1).forEach((r, index) => {
+      const line = index + 2;
+      const day = parseDay(r[cols.iDate]);
+      const hours = parseFloat(String(r[cols.iHours]).replace(/,/g, '')), miles = parseFloat(String(r[cols.iMiles]).replace(/,/g, ''));
+      if (!day) { out.skipped.push({ line, reason: 'no date' }); return; }
+      if (!valid(hours) || !valid(miles) || hours < 0 || miles < 0) { out.skipped.push({ line, reason: 'no miles' }); return; }
+      if (hours === 0 && miles === 0) { out.skipped.push({ line, reason: 'zero' }); return; }
+      const rate = cols.iRate >= 0 ? parseFloat(r[cols.iRate]) : NaN;
+      let deduction = cols.iDeduction >= 0 ? parseMoney(r[cols.iDeduction]) : null;
+      if (deduction === null) deduction = valid(rate) ? Math.round(miles * rate) : 0;
+      const milli = Math.round(miles * 1000), seconds = Math.round(hours * 3600);
+      const base = 'gw|m|' + day.key;
+      seen[base] = (seen[base] || 0) + 1;
+      const at = new Date(Date.UTC(day.y, day.m - 1, day.d, 12, 0) - offset * 60000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+      out.entries.push({ id: base + '|' + seen[base], kind: 'mileage', at, amountCents: deduction, milliMiles: milli, seconds,
+        category: 'Mileage', platform: null, note: valid(rate) ? 'Gridwise · ' + rate + '¢/mi' : 'Gridwise' });
+      if (!out.from || day.key < out.from) out.from = day.key;
+      if (!out.to || day.key > out.to) out.to = day.key;
+      out.totals.miles += miles; out.totals.seconds += seconds; out.totals.deductionCents += deduction;
+    });
+    out.totals.miles = Math.round(out.totals.miles * 10) / 10;
+    return out;
+  }
+
   function parseGridwise(text, options) {
     const offset = (options && options.offsetMinutes) || 0;
     const rows = parseCSV(text);
@@ -842,6 +888,8 @@
     const header = rows[0].map(h => h.trim().toLowerCase());
     const col = name => header.indexOf(name);
     const iDate = col('date'), iAmount = col('amount'), iCategory = col('category'), iNotes = col('notes'), iService = col('service');
+    const iHours = col('hours'), iMiles = col('miles'), iDeduction = col('deduction'), iRate = header.findIndex(h => h.indexOf('deduction rate') === 0);
+    if (iDate >= 0 && iHours >= 0 && iMiles >= 0 && iService < 0) return parseGridwiseMileage(rows, { iDate, iHours, iMiles, iDeduction, iRate }, offset, out);
     if (iDate < 0 || iAmount < 0) return out;
     out.kind = iService >= 0 ? 'earnings' : 'expenses';
     const seen = {};

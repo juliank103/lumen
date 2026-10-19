@@ -52,6 +52,8 @@ struct ShiftMetrics: Decodable, Equatable {
     struct App: Decodable, Equatable { let earningsCents: Int; let completed: Int }
     struct Miles: Decodable, Equatable {
         let toPickup, delivery, driveBack, reposition, order, deadhead, total: Double
+        /// Of `total`, miles imported from Gridwise (week and day views only).
+        let imported: Double?
     }
     struct Wait: Decodable, Equatable {
         let visits: Int

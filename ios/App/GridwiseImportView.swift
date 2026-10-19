@@ -9,14 +9,34 @@ struct GridwiseReport: Decodable, Equatable {
         let expensesCents: Int
         let byPlatform: [String: Int]
         let byCategory: [String: Int]
+        /// Mileage report only.
+        let miles: Double?
+        let seconds: Int?
+        let deductionCents: Int?
     }
-    /// "earnings", "expenses", or nil when the file isn't one of Gridwise's reports.
+    /// "earnings", "expenses", "mileage", or nil when the file isn't one of Gridwise's reports.
     let kind: String?
     let entries: [MoneyEntry]
     let skipped: [Skip]
     let from: String?
     let to: String?
     let totals: Totals
+}
+
+extension GridwiseReport {
+    /// Reads one report's text through core/shift.js. Entries carry ISO dates, so this needs the .iso8601 strategy
+    /// (ShiftEngine.decode's default decoder rejected every row: build 26's "That isn't a Gridwise report" on a good file,
+    /// user Oct 19). Covered by a unit test that decodes real parser output.
+    @MainActor
+    static func parse(_ text: String) -> Result<GridwiseReport, Error> {
+        let options = "{\"offsetMinutes\":\(ShiftEngine.offsetMinutes)}"
+        guard let json = ShiftEngine.call("parseGridwiseJSON", [ShiftEngine.json(text), options]) else {
+            return .failure(NSError(domain: "Gridwise", code: 1, userInfo: [NSLocalizedDescriptionKey: "the importer didn't run"]))
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return Result { try decoder.decode(GridwiseReport.self, from: Data(json.utf8)) }
+    }
 }
 
 /// Import history from Gridwise (user, Oct 19: "allow myself and future users to import their data from gridwise").
@@ -28,6 +48,8 @@ struct GridwiseImportView: View {
         let id = UUID()
         let name: String
         let report: GridwiseReport?
+        /// Why a file that looks like a report couldn't be read (nil: simply not one of Gridwise's reports).
+        var problem: String? = nil
     }
 
     @ObservedObject private var store = EntryStore.shared
@@ -45,7 +67,7 @@ struct GridwiseImportView: View {
     var body: some View {
         List {
             Section {
-                Text("In Gridwise, export your Earnings report and your Expenses report as CSV and save them to Files or iCloud Drive. Choose both here at once, or one at a time.")
+                Text("In Gridwise, export your Earnings, Expenses, and Mileage reports as CSV and save them to Files or iCloud Drive. Choose both here at once, or one at a time.")
                     .font(.subheadline).foregroundStyle(.secondary)
                 Button { picking = true } label: { Label("Choose CSV files…", systemImage: "doc.badge.plus") }
             }
@@ -63,7 +85,7 @@ struct GridwiseImportView: View {
                         .disabled(allNew.isEmpty)
                     }
                 } footer: {
-                    Text("Earnings from Gridwise are daily totals per app. They appear under Earnings by day and in the By app split. Expenses go to Net and the expense tile.")
+                    Text("Earnings from Gridwise are daily totals per app. They appear under Earnings by day and in the By app split. Expenses go to Net and the expense tile. Mileage adds hours and miles for those days, which gives imported earnings a $/hr and $/mi.")
                 }
             }
             if importedCount > 0 {
@@ -96,8 +118,13 @@ struct GridwiseImportView: View {
         if let report = file.report, let kind = report.kind {
             let known = Set(store.entries.map(\.id))
             let fresh = report.entries.filter { !known.contains($0.id) }.count
-            row(kind == "earnings" ? "Earnings report" : "Expenses report", Self.range(report.from, report.to))
-            if kind == "earnings" {
+            row(["earnings": "Earnings report", "expenses": "Expenses report", "mileage": "Mileage report"][kind] ?? "Report", Self.range(report.from, report.to))
+            if kind == "mileage" {
+                row("Days", "\(report.entries.count)")
+                row("Hours", String(format: "%.1f", Double(report.totals.seconds ?? 0) / 3600))
+                row("Miles", String(format: "%.1f", report.totals.miles ?? 0))
+                row("Deduction (Gridwise's rates)", ShiftFormat.money(report.totals.deductionCents ?? 0), bold: true)
+            } else if kind == "earnings" {
                 row("Daily totals", "\(report.entries.count)")
                 ForEach(report.totals.byPlatform.sorted { $0.value > $1.value }, id: \.key) { app, cents in
                     HStack(spacing: 8) {
@@ -120,7 +147,8 @@ struct GridwiseImportView: View {
                 row("Skipped", "\(report.skipped.count) (zero or unreadable rows)")
             }
         } else {
-            Label("That isn't a Gridwise Earnings or Expenses report. It needs Date and Amount columns.", systemImage: "exclamationmark.triangle")
+            Label(file.problem ?? "That isn't one of Gridwise's Earnings, Expenses, or Mileage reports. It needs a Date column, and Amount (or Hours and Miles).",
+                  systemImage: "exclamationmark.triangle")
                 .foregroundStyle(.orange)
         }
     }
@@ -140,9 +168,12 @@ struct GridwiseImportView: View {
               let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else {
             return Loaded(name: url.lastPathComponent, report: nil)
         }
-        let options = "{\"offsetMinutes\":\(ShiftEngine.offsetMinutes)}"
-        let report = ShiftEngine.decode(GridwiseReport.self, ShiftEngine.call("parseGridwiseJSON", [ShiftEngine.json(text), options]))
-        return Loaded(name: url.lastPathComponent, report: report?.kind == nil ? nil : report)
+        switch GridwiseReport.parse(text) {
+        case .success(let report):
+            return Loaded(name: url.lastPathComponent, report: report.kind == nil ? nil : report)
+        case .failure(let error):
+            return Loaded(name: url.lastPathComponent, report: nil, problem: "__APP_NAME__ couldn't read this report: \(error.localizedDescription)")
+        }
     }
 
     private func add() {

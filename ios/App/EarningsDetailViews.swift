@@ -28,6 +28,9 @@ struct DayDetailView: View {
                 row("On deliveries", ShiftFormat.duration(day.activeSeconds))
                 row("Idle", ShiftFormat.duration(day.idleSeconds))
                 row("Miles", ShiftFormat.miles(day.miles.total))
+                if let seconds = day.importedSeconds, seconds > 0 {
+                    row("Imported from Gridwise", ShiftFormat.duration(seconds) + " · " + ShiftFormat.miles(day.importedMiles ?? 0))
+                }
                 row("Deadhead", ShiftFormat.miles(day.miles.deadhead))
                 row("Average store wait", day.restaurantWait.averageMinutes.map { String(format: "%.0f min", $0) } ?? "—")
             }

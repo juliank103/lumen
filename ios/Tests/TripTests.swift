@@ -146,6 +146,31 @@ final class TripTests: XCTestCase {
         XCTAssertNil(detector.next(at: at(39.8435, -98.5400, seconds: 120, speed: 10), trip: trip, storeSpots: [:]))
     }
 
+    /// Build 26's Gridwise import rejected every file: the parsed entries' ISO dates were decoded with a default decoder.
+    /// This decodes the importer's real output for each of Gridwise's three reports.
+    @MainActor
+    func testGridwiseReportsDecodeFromTheImporter() {
+        let earnings = "Date,Category,Service,Amount,Notes\n2026-03-10,,doordash,65.05,\n2026-03-10,,uber_eats,77.70,\n"
+        let expenses = "Date,Category,Amount,Notes\n2026-04-27,Gas,46.60,\n"
+        let mileage = "Date,Hours,Miles,Deduction Rate Cents/Mi,Deduction\n03/10/2026,2.5,50.25,72.5,36.43\n"
+        for (text, kind, count) in [(earnings, "earnings", 2), (expenses, "expenses", 1), (mileage, "mileage", 1)] {
+            switch GridwiseReport.parse(text) {
+            case .success(let report):
+                XCTAssertEqual(report.kind, kind)
+                XCTAssertEqual(report.entries.count, count)
+                XCTAssertTrue(report.entries.allSatisfy { $0.id.hasPrefix("gw|") })
+            case .failure(let error):
+                XCTFail("\(kind): \(error)")
+            }
+        }
+        if case .success(let report) = GridwiseReport.parse(mileage) {
+            XCTAssertEqual(report.entries[0].milliMiles, 50250)
+            XCTAssertEqual(report.entries[0].seconds, 9000)
+            XCTAssertEqual(report.entries[0].amountCents, 3643)
+        }
+        if case .success(let report) = GridwiseReport.parse("a,b\n1,2") { XCTAssertNil(report.kind) }
+    }
+
     // Rule 2 of LifecycleSync: a pickup screen accepts only the offer from its store (Oct 18 shift).
     func testPickupScreenStoreCodeMatchesOnlyItsOffer() {
         let screen = LifecycleSignal.storeCode("Chipotle (375 N Milwaukee)")!

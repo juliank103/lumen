@@ -6,7 +6,8 @@ import Foundation
 struct MoneyEntry: Codable, Identifiable, Equatable {
     /// `imported` = a day's earnings from a Gridwise report (a daily total for one app: counts in earnings and the app share,
     /// never in $/hr or $/mi, which need time and miles).
-    enum Kind: String, Codable { case expense, extra, imported }
+    /// `mileage` = a day's hours and miles from a Gridwise Mileage report (amountCents = Gridwise's deduction for the day).
+    enum Kind: String, Codable { case expense, extra, imported, mileage }
     let id: String
     var kind: Kind
     var at: Date
@@ -15,6 +16,9 @@ struct MoneyEntry: Codable, Identifiable, Equatable {
     /// The delivery app an extra came from (nil for expenses or "other").
     var platform: String?
     var note: String?
+    /// Mileage entries only: miles ×1000 and seconds worked.
+    var milliMiles: Int?
+    var seconds: Int?
 
     static let expenseCategories = ["Gas", "Charging", "Car wash", "Maintenance", "Parking & tolls", "Phone", "Food & drinks", "Other"]
     static let extraCategories = ["Tip", "Bonus or challenge", "Pay adjustment", "Other"]

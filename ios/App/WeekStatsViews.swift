@@ -212,7 +212,7 @@ enum ChartMetric: String, CaseIterable, Identifiable {
         case .earnings: return Double(m.earningsCents) / 100
         case .expenses: return Double(m.expensesCents ?? 0) / 100
         case .net: return Double(m.netCents ?? m.earningsCents) / 100
-        case .deduction: return m.miles.total * Double(Self.deductionCentsPerMile) / 100
+        case .deduction: return Double(Self.deductionCents(m)) / 100
         case .perHour: return Double(m.perOnlineHourCents ?? 0) / 100
         case .perMile: return Double(m.perMileCents ?? 0) / 100
         case .hours: return Double(m.onlineSeconds) / 3600
@@ -231,7 +231,7 @@ enum ChartMetric: String, CaseIterable, Identifiable {
         case .earnings: return ShiftFormat.money(m.earningsCents)
         case .expenses: return ShiftFormat.money(m.expensesCents ?? 0)
         case .net: return ShiftFormat.money(m.netCents ?? m.earningsCents)
-        case .deduction: return ShiftFormat.money(Int((m.miles.total * Double(Self.deductionCentsPerMile)).rounded()))
+        case .deduction: return ShiftFormat.money(Self.deductionCents(m))
         case .perHour: return ShiftFormat.rate(m.perOnlineHourCents, "hr")
         case .perMile: return ShiftFormat.rate(m.perMileCents, "mi")
         case .hours: return String(format: "%.1f", Double(m.onlineSeconds) / 3600)
@@ -262,6 +262,12 @@ enum ChartMetric: String, CaseIterable, Identifiable {
 
     /// Mileage deduction rate (user, Oct 16, like Gridwise: $0.67 per mile driven); changeable in Account.
     static var deductionCentsPerMile: Int { UserDefaults.standard.object(forKey: "mileageDeductionCents") as? Int ?? 67 }
+
+    /// Miles __APP_NAME__ tracked × your rate, plus Gridwise's own deduction for imported days (its rate changed during the year).
+    static func deductionCents(_ m: RangeMetrics) -> Int {
+        let tracked = max(0, m.miles.total - (m.miles.imported ?? 0))
+        return Int((tracked * Double(deductionCentsPerMile)).rounded()) + (m.importedDeductionCents ?? 0)
+    }
 }
 
 /// The week's totals as a 2-column grid of tiles; the selected tile is highlighted and drives the chart below.

@@ -56,6 +56,10 @@ struct RangeMetrics: Decodable, Equatable {
         let note: String?
     }
     let extrasCents: Int?
+    /// Gridwise's hours, miles, and deduction for imported days (already in online time, miles, and the deduction).
+    let importedSeconds: Int?
+    let importedMiles: Double?
+    let importedDeductionCents: Int?
     let expensesCents: Int?
     let netCents: Int?
     let entries: [EntryRow]?
