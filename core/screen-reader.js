@@ -17,7 +17,9 @@
   // Layouts checked against real offer-card screenshots (October 12, 2026). Other screens are not read yet.
   const VERIFIED_LAYOUTS = ['uber_eats.offer_card', 'uber_eats.early_look', 'doordash.offer_card', 'doordash.offer_card_stops', 'grubhub.offer_card'];
   const MARKERS = {
-    uber_eats: [/Guaranteed \(incl\. tip\)/i, /\bmin\s*\(\s*[\d.]+\s*mi\)\s*total/i, /Boost\+/i, /^Delivery(\s*\(\d+\))?$/i, /^Exclusive$/i, /expected tip/i, /Customer verification/i],
+    uber_eats: [/Guaranteed \(incl\. tip\)/i, /\bmin\s*\(\s*[\d.]+\s*mi\)\s*total/i, /Boost\+/i, /^Delivery(\s*\(\d+\))?$/i, /^Exclusive$/i, /expected tip/i, /Customer verification/i,
+      // Early-look "Match" cards and "Add a delivery" during an order (Oct 18 screenshots).
+      /Matching may take longer/i, /^Add a delivery$/i, /Est\.? ?delivery \d{1,2}:\d{2}/i],
     // "Pick up 3 orders" / "Multiple dropoffs (3 stops)": DoorDash's multi-order card (food bank retail pickup, Oct 15
     // 2026), whose top ("Decline") is outside the part of the screen that is read.
     doordash: [/incl\. tips/i, /^Deliver by\b/i, /Customer dropoff/i, /^((Retail|Grocery|Shop|Store)\s+)?Pickup$/i, /\bstops?\s*\(\s*[\d.]+\s*mi\)/i, /^Decline$/i,
@@ -245,7 +247,8 @@
   }
   function readUber(lines, pay, f, problems) {
     // "25 min (7.1 mi) total", also with a bracket misread or lost ("{7.1 mi", "(7.1 mi total", "t0tal").
-    const TOTAL = /(\d{1,3})\s*min\s*([({[])?\s*(\d{1,3}(?:\.\d{1,2})?)\s*mi\b\s*[)}\]]?\s*(t[o0]ta[l1I])?/i;
+    // "Add a delivery" during an order adds "+22 min (+ 6.3 mi) total" (Oct 18 screenshots).
+    const TOTAL = /(\d{1,3})\s*min\s*([({[])?\s*\+?\s*(\d{1,3}(?:\.\d{1,2})?)\s*mi\b\s*[)}\]]?\s*(t[o0]ta[l1I])?/i;
     const isTotal = text => { const m = TOTAL.exec(text); return m && (m[2] || m[4]) ? m : null; };
     const total = lines.find(l => isTotal(l.text));
     if (total) {
@@ -263,7 +266,8 @@
         const m = /Est\.?\s*delivery\s+(\d{1,2}):(\d{2})\s*([AP])\.?M\s*\S\s*([\d.]+)\s*mi/i.exec(est.text);
         f.milesText = m[4];
         f.deliverByMinutes = (Number(m[1]) % 12 + (/p/i.test(m[3]) ? 12 : 0)) * 60 + Number(m[2]);
-        const next = below(lines, est);
+        // Not a stray map label at the card's edge ("01" beside the restaurant, Oct 18).
+        const next = below(lines, est).filter(l => /[A-Za-z]{2}/.test(l.text));
         if (next[0] && !isAddress(next[0].text)) f.merchants.push(next[0].text.replace(/^[a-z]\s+(?=[A-Z])/, ''));
         const area = next[1] && /,\s*([A-Za-z][A-Za-z .'-]{2,30})$/.exec(next[1].text);
         if (area) { f.dropoffArea = area[1].trim(); f.routing.dropoffQuery = next[1].text; }
@@ -346,7 +350,19 @@
   /* A page of text — a chat, notes, a web page — not an app screen (user, Oct 18: reading this conversation on the phone
    * gave false steps and a late accept). Real delivery screens, all 59 + 15 captured, have at most 2 lines of 7+ words,
    * 3 lines of 40+ characters, and 4 sentence-like lines; a page of text has many more. */
-  function documentLike(lines) {
+  function documentLike(all) {
+    // A store's note on Uber's pickup screen ("Note from business", a paragraph of directions) is prose on a real
+    // screen: its paragraph doesn't count (Oct 18 screenshots).
+    const note = all.find(l => /^Note from (business|restaurant|store|merchant)$/i.test(l.text));
+    let lines = all;
+    if (note) {
+      const para = [note];
+      for (const l of all.filter(v => v.y > note.y).sort((a, b) => a.y - b.y)) {
+        if (l.y - para[para.length - 1].y > 0.035) break;
+        para.push(l);
+      }
+      lines = all.filter(l => !para.includes(l));
+    }
     const words = t => t.split(/\s+/).filter(w => /[A-Za-z]{2}/.test(w)).length;
     const sevenWords = lines.filter(l => words(l.text) >= 7).length;
     const long = lines.filter(l => l.text.length >= 40).length;
@@ -745,6 +761,15 @@
     // Uber's pickup sheet: "Arriving soon" over the store, "Pick up 1 order" (DoorDash's is "Pick up order", no number).
     { platform: 'uber_eats', state: 'at_store', all: [/^Arriving soon$/i, /^Pick up \d+ orders?$/i] },
     { platform: 'uber_eats', state: 'at_store', all: [/^Not a receipt$/i, /Retake/i] },
+    // Oct 18 screenshots: "You've arrived" over the store's name on the map, the receipt camera, and "Ready for the next
+    // stop?" after the pickup swipe (the order is collected, the driver hasn't left yet).
+    { platform: 'uber_eats', state: 'at_store', all: [/^You'?ve arrived$/i] },
+    { platform: 'uber_eats', state: 'at_store', all: [/^Include the order name and number$/i] },
+    { platform: 'uber_eats', state: 'at_store', all: [/^Continue to next stop$|Confirm that the order has been collected/i] },
+    // The drop-off: "Take photo" over the customer's items ("1 x Burrito Bowl"), and the map on the way there, whose
+    // bottom bar is the drop-off instruction ("Leave at door") under the destination banner.
+    { platform: 'uber_eats', state: 'at_customer', all: [/^Take photo$/i, /^\d{1,2} ?[x×] [A-Za-z]/i] },
+    { platform: 'uber_eats', state: 'heading_to_customer', test: lines => uberDropoffBar(lines) },
     { platform: 'uber_eats', state: 'heading_to_customer', all: [/^Deliver to\b/i] },
     { platform: 'uber_eats', state: 'heading_to_store', test: lines => uberNavStore(lines) !== null },
     { platform: 'uber_eats', state: 'available', all: [/^Hello, /i, /Gold|Platinum|Diamond|Uber Pro/i] }
@@ -840,6 +865,20 @@
 
   /* Uber's navigation bar at the bottom: "5 min" and "2.2 mi" side by side, then where to. Returns that line when it's
    * a store (not "Deliver to …"), else null. OCR may read the digits as I/O ("IO min") or add an icon glyph ("0 1.4 mi"). */
+  /** Uber's map at/near the drop-off: the instruction alone in the bottom bar, the destination banner on top. */
+  function uberDropoffBar(lines) {
+    const bar = lines.find(l => l.y > 0.85 && /^(Leave at door|Meet at door|Meet outside|Hand to customer|Meet in lobby)$/i.test(l.text));
+    if (!bar || lines.some(l => l.y > bar.y + 0.01)) return false;
+    // The banner's distance ("0 ft", "0.3 mi"): Grubhub's photo screen also ends in "Hand to customer".
+    return lines.some(l => l.y < 0.2 && l.y > 0.06 && /^[0-9O]+(\.\d)? ?(ft|mi)\b/i.test(l.text));
+  }
+
+  /** The destination banner on Uber's map ("Chipotle Mexican Grill" / "(375 N Milwaukee Ave Ste" / "100)"). */
+  function uberBanner(lines) {
+    const parts = lines.filter(l => l.y > 0.06 && l.y < 0.2 && l.x > 0.18 && l.x < 0.32 && l.h >= 0.02).sort((a, b) => a.y - b.y);
+    return parts.length ? parts.map(l => l.text).join(' ').replace(/\s+/g, ' ') : null;
+  }
+
   function uberNavStore(lines) {
     // Also when OCR joined the two ("5 min 2.2 mi") or put a glyph between them.
     const both = lines.find(l => l.y > 0.75 && /^[\dIOl]{1,3} ?min\b.*\b\d{1,3}([.,]\d)? ?mi$/.test(l.text));
@@ -877,10 +916,24 @@
     }
     if (rule.platform === 'uber_eats' && rule.state === 'heading_to_store') return store(uberNavStore(lines));
     if (rule.platform === 'uber_eats' && rule.state === 'at_store') {
-      // "Arriving soon" / <store> on the pickup sheet; the receipt screen leads with the customer, so no store there.
-      const arriving = lines.find(l => /^Arriving soon$/i.test(l.text));
+      // "Arriving soon" or "You've arrived" over the store on the pickup sheet.
+      const arriving = lines.find(l => /^Arriving soon$|^You'?ve arrived$/i.test(l.text));
       const next = arriving && below(lines, arriving)[0];
-      return next ? store(next.text) : null;
+      if (next) return store(next.text);
+      // The receipt screen leads with the customer; the store heads the items card ("Chipotle Mexican Grill" over
+      // "1 x Burrito Bowl").
+      const item = lines.find(l => /^\d{1,2} ?[x×] [A-Za-z]/i.test(l.text));
+      const head = item && lines.filter(l => l.y < item.y && item.y - l.y < 0.1 && l.x < item.x + 0.15 && /[A-Za-z]{3}/.test(l.text))
+        .sort((a, b) => b.y - a.y)[0];
+      if (head && !/^\d/.test(head.text)) return store(head.text);
+      // "Complete pickup": the store's name over its street address at the top ("Chipotle" / "Mexican Grill" / "375 N …").
+      const address = lines.find(l => l.y < 0.35 && isAddress(l.text));
+      if (address) {
+        const name = lines.filter(l => l.y < address.y && address.y - l.y < 0.1 && Math.abs(l.x - address.x) < 0.04).sort((a, b) => a.y - b.y);
+        if (name.length) return store(name.map(l => l.text).join(' '));
+      }
+      // "Ready for the next stop?": the store in the map banner.
+      return store(uberBanner(lines));
     }
     if (rule.platform === 'doordash' && rule.state === 'heading_to_store') {
       const by = lines.find(l => /^Pick up by\b/i.test(l.text));
