@@ -30,7 +30,7 @@ enum AppSection: String, CaseIterable, Identifiable {
     }
 
     /// Main destinations above the divider; the rest below it (like DoorDash's Messages/Help).
-    static let main: [AppSection] = [.home, .offers, .earnings, .zones, .account]
+    static let main: [AppSection] = [.home, .offers, .earnings, .zones, .restaurants, .account]
 }
 
 @MainActor
