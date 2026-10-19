@@ -112,13 +112,14 @@ final class OfferReader {
 
     /// The order state the screen shows (app + state, e.g. DoorDash "at_store"), or nil. No customer details.
     /// `tolerant`: matched despite OCR mistakes (not word for word) — acted on only after a second matching read.
-    func status(_ lines: [Line]) -> (platform: String, state: String, tolerant: Bool)? {
+    /// `store`: the store name a pickup screen shows (a business, never a customer), or nil.
+    func status(_ lines: [Line]) -> (platform: String, state: String, tolerant: Bool, store: String?)? {
         let payload = lines.map { ["text": $0.text, "x": $0.x, "y": $0.y, "w": $0.w, "h": $0.h] as [String: Any] }
         guard let json = try? JSONSerialization.data(withJSONObject: payload), let text = String(data: json, encoding: .utf8),
               let output = try? call(statusFunction, [text]), let data = output.data(using: .utf8),
               let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let platform = object["platform"] as? String, let state = object["state"] as? String else { return nil }
-        return (platform, state, object["tolerant"] as? Bool ?? false)
+        return (platform, state, object["tolerant"] as? Bool ?? false, object["store"] as? String)
     }
 
     /// Whether the refined notice changes the stage-1 recommendation enough to notify again.

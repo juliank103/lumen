@@ -145,4 +145,13 @@ final class TripTests: XCTestCase {
         // The driver undid it (still away from the store): no repeat within 10 minutes.
         XCTAssertNil(detector.next(at: at(39.8435, -98.5400, seconds: 120, speed: 10), trip: trip, storeSpots: [:]))
     }
+
+    // Rule 2 of LifecycleSync: a pickup screen accepts only the offer from its store (Oct 18 shift).
+    func testPickupScreenStoreCodeMatchesOnlyItsOffer() {
+        let screen = LifecycleSignal.storeCode("Chipotle (375 N Milwaukee)")!
+        XCTAssertTrue(LifecycleSignal.storeCodes(["Chipotle Mexican Grill (375 N Milwauke"]).contains(screen))
+        XCTAssertFalse(LifecycleSignal.storeCodes(["Pizzeria Deville"]).contains(screen))
+        XCTAssertEqual(LifecycleSignal(name: LifecycleSignal(platform: "uber_eats", state: "at_store", store: screen).name)?.store, screen)
+        XCTAssertNil(LifecycleSignal.storeCode("The Grill"))
+    }
 }

@@ -708,9 +708,12 @@
     // photo / "Complete delivery" step — so a visual refresh that keeps these words still reads.
     { platform: 'doordash', state: 'available', any: [[/Finding offers|Zone offer wait|Move toward a hotspot/i],
       [/^Dash Now$/i, /Schedule a Dash|Dash Along the Way|Earn (by Time|per Offer)/i]] },
-    { platform: 'doordash', state: 'at_customer', all: [/^Drop off order$|Take dropoff photo|Handed to customer|order before drop-off|verify that you dropped off|^Complete delivery$/i] },
-    { platform: 'doordash', state: 'at_store', all: [/^Pick up order$|^Scan receipt$|Scan customer name|^Verify items$|Report lon[gq][- ]?wait|^Start scanning$|^Start pickup$|Scan QR code on receipt|Manually enter the order number|^Confirm pickup$/i] },
-    { platform: 'doordash', state: 'heading_to_store', all: [/Slide upon arrival/i] },
+    // ("Complete delivery", the drop-off photo sentence, and "Confirm pickup" came out on Oct 18: researched, never seen on
+    // the user's DoorDash screens, and Uber's drop-off screen read as DoorDash "at the customer" all through the shift.)
+    { platform: 'doordash', state: 'at_customer', all: [/^Drop off order$|Take dropoff photo|Handed to customer|order before drop-off/i] },
+    { platform: 'doordash', state: 'at_store', all: [/^Pick up order$|^Scan receipt$|Scan customer name|^Verify items$|Report lon[gq][- ]?wait|^Start scanning$|^Start pickup$|Scan QR code on receipt|Manually enter the order number/i] },
+    // The slider is the only action on the screen heading to the store: other steps' wording with it is a list (Oct 18).
+    { platform: 'doordash', state: 'heading_to_store', all: [/Slide upon arrival/i], sole: true },
     { platform: 'doordash', state: 'heading_to_customer', any: [[/^Deliver by\b/i, /^(Navigate|Arrived)$/i],
       // The drop-off card also says how to leave it (offer cards with "Deliver by" never do).
       [/^Deliver by\b/i, /^(Leave at door|Hand it to customer|Hand to customer)$/i]] },
@@ -786,6 +789,7 @@
       'heading_to_customer|navigating', 'at_customer|heading_to_customer', 'at_customer|navigating', 'at_customer|delivered',
       'delivered|heading_to_customer'];
     if (steps.length === 2 && !NEIGHBOURS.includes(steps.slice().sort().join('|'))) return null;
+    if (steps.length >= 2 && matched.some(r => r.sole)) return null;
     // Same for loose matches across steps (quoted, misspelt labels): 3 different steps at once is a page about them.
     const looseSteps = new Set(STATUS_RULES.filter(r => !r.test && (r.all ? r.all.every(loose) : r.any.some(group => group.every(loose))))
       .map(r => r.state));
