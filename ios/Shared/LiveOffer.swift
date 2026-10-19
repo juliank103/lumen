@@ -43,6 +43,10 @@ struct LiveOffer: Codable, Identifiable {
     /// Milliseconds from the card first being seen to the first notification, and to the refined result.
     let latencyFirstMs: Int?
     let latencyRefinedMs: Int?
+    /// Where the phone was when the offer came (rounded to ~100 m; the driver's own position, never the customer's), for
+    /// the Zones heat map. Nil on older offers or when the reader had no position.
+    let waitLat: Double?
+    let waitLon: Double?
     let headline: String
     let detail: String
     let fingerprint: String

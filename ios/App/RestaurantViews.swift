@@ -1,4 +1,5 @@
 import SwiftUI
+import MapKit
 
 /// Every restaurant __APP_NAME__ has seen on offers or that you arrived at, with waits; search, rename, and merge duplicates.
 struct RestaurantsView: View {
@@ -64,11 +65,11 @@ struct RestaurantDetail: View {
     var body: some View {
         List {
             if let r = restaurant {
+                RestaurantLocationSection(restaurant: r)
                 Section {
                     row("Offers seen", "\(r.offers)")
                     row("Your visits", "\(r.visits)")
                     row("Apps", r.platforms.map(Theme.appName).joined(separator: ", "))
-                    if r.lat != nil { row("Location", "saved from your arrivals") }
                 }
                 if let stat = store.stats[r.id] {
                     Section("Wait for food") {
@@ -117,6 +118,7 @@ struct RestaurantDetail: View {
 /// Choose the restaurant this one is a duplicate of: likely matches first (similar name, nearby), then all others.
 struct MergePicker: View {
     @ObservedObject private var store = RestaurantStore.shared
+    @ObservedObject private var places = RestaurantPlaces.shared
     @Environment(\.dismiss) private var dismiss
     let restaurantId: String
     let onPick: (String) -> Void
@@ -129,26 +131,32 @@ struct MergePicker: View {
         let others = store.restaurants.filter { $0.id != restaurantId && !suggested.contains($0.id)
             && (search.isEmpty || $0.aliases.contains { $0.localizedCaseInsensitiveContains(search) }) }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        let candidates = suggestions.compactMap { s in store.restaurants.first { $0.id == s.id } }
         List {
             if !suggestions.isEmpty && search.isEmpty {
+                // Where this one and its likely matches are (user, Oct 19: "i can't figure out which ones to merge").
+                if let me = store.restaurants.first(where: { $0.id == restaurantId }) {
+                    Section {
+                        MergeMap(restaurant: me, candidates: candidates)
+                            .frame(height: 220)
+                            .listRowInsets(EdgeInsets())
+                    } footer: {
+                        Text("Purple: this restaurant. Numbers: the likely matches below. Same spot means the same place; far apart means different branches.")
+                    }
+                }
                 Section("Likely the same place") {
-                    ForEach(suggestions) { s in
-                        Button { confirm = store.restaurants.first { $0.id == s.id } } label: {
-                            HStack {
-                                Text(s.name).foregroundStyle(.primary)
-                                Spacer()
-                                if let miles = s.miles { Text(String(format: "%.1f mi apart", miles)).font(.caption).foregroundStyle(.secondary) }
-                            }
-                        }
+                    ForEach(Array(candidates.enumerated()), id: \.element.id) { index, r in
+                        Button { confirm = r } label: { candidateRow(r, number: index + 1) }
                     }
                 }
             }
             Section("All restaurants") {
                 ForEach(others) { r in
-                    Button { confirm = r } label: { Text(r.name).foregroundStyle(.primary) }
+                    Button { confirm = r } label: { candidateRow(r, number: nil) }
                 }
             }
         }
+        .onAppear { places.find([restaurantId] + suggestions.map(\.id)) }
         .searchable(text: $search)
         .navigationTitle("Merge into…")
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
@@ -157,5 +165,90 @@ struct MergePicker: View {
         } message: { target in
             Text("Both names, offers, visits, and waits become one restaurant: \(target.name).")
         }
+    }
+
+    private func candidateRow(_ r: Restaurant, number: Int?) -> some View {
+        HStack(spacing: 10) {
+            if let number {
+                Text("\(number)").font(.caption.weight(.heavy)).foregroundStyle(.white)
+                    .frame(width: 22, height: 22).background(Color.gray, in: Circle())
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(r.name).foregroundStyle(.primary)
+                if let place = placeText(r) { Text(place).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+            }
+            Spacer()
+            if let miles = milesApart(r) { Text(String(format: "%.1f mi apart", miles)).font(.caption).foregroundStyle(.secondary) }
+        }
+    }
+
+    private func placeText(_ r: Restaurant) -> String? {
+        if r.lat != nil { return "Located from your arrivals" }
+        return places.places[r.id]?.address
+    }
+
+    private func milesApart(_ r: Restaurant) -> Double? {
+        guard let me = store.restaurants.first(where: { $0.id == restaurantId }),
+              let a = places.location(of: me)?.coordinate, let b = places.location(of: r)?.coordinate else { return nil }
+        return CLLocation(latitude: a.latitude, longitude: a.longitude).distance(from: CLLocation(latitude: b.latitude, longitude: b.longitude)) / 1609.344
+    }
+}
+
+/// This restaurant (purple) and its likely duplicates (numbered), on one map.
+struct MergeMap: View {
+    @ObservedObject private var places = RestaurantPlaces.shared
+    let restaurant: Restaurant
+    let candidates: [Restaurant]
+
+    var body: some View {
+        Map {
+            if let me = places.location(of: restaurant) {
+                Marker(restaurant.name, systemImage: "fork.knife", coordinate: me.coordinate).tint(Theme.purple)
+            }
+            ForEach(Array(candidates.enumerated()), id: \.element.id) { index, r in
+                if let at = places.location(of: r) {
+                    Marker(r.name, monogram: Text("\(index + 1)"), coordinate: at.coordinate).tint(.gray)
+                }
+            }
+        }
+        .mapStyle(.standard(pointsOfInterest: .excludingAll))
+    }
+}
+
+/// The restaurant on a map, and how __APP_NAME__ knows where it is (user, Oct 19).
+struct RestaurantLocationSection: View {
+    @ObservedObject private var places = RestaurantPlaces.shared
+    let restaurant: Restaurant
+
+    var body: some View {
+        Section {
+            if let at = places.location(of: restaurant) {
+                Map(initialPosition: .region(MKCoordinateRegion(center: at.coordinate, latitudinalMeters: 1200, longitudinalMeters: 1200))) {
+                    Marker(restaurant.name, systemImage: "fork.knife", coordinate: at.coordinate).tint(Theme.purple)
+                }
+                .frame(height: 190)
+                .listRowInsets(EdgeInsets())
+                VStack(alignment: .leading, spacing: 2) {
+                    if at.fromArrivals {
+                        Text("From your arrivals here").font(.subheadline)
+                    } else {
+                        Text("Apple Maps match (approximate)").font(.subheadline)
+                        if let place = places.places[restaurant.id] {
+                            Text([place.title, place.address].compactMap { $0 }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                Button("Open in Maps") {
+                    let item = MKMapItem(placemark: MKPlacemark(coordinate: at.coordinate))
+                    item.name = restaurant.name
+                    item.openInMaps()
+                }
+            } else if places.searching {
+                Label("Looking it up on Apple Maps…", systemImage: "magnifyingglass").foregroundStyle(.secondary)
+            } else {
+                Label("Location unknown. It's saved the first time you arrive there.", systemImage: "mappin.slash").foregroundStyle(.secondary)
+            }
+        }
+        .onAppear { if restaurant.lat == nil { places.find([restaurant.id]) } }
     }
 }

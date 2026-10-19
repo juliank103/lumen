@@ -37,6 +37,7 @@ struct ContentView: View {
         case .home: DashTab()
         case .offers: OffersTab()
         case .earnings: StatsTab()
+        case .zones: ZonesView()
         case .restaurants: NavigationStack { RestaurantsView().menuButton() }
         case .account: AccountTab()
         case .diagnostics: NavigationStack { DiagnosticsView().menuButton() }

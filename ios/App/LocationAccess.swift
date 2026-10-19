@@ -2,7 +2,8 @@ import CoreLocation
 
 // The app only asks for permission; the capture extension reads the position to credit the drive back to
 // __HOME_NAME__ and to bound returns. "Always" may be needed because the broadcast runs while other apps are open.
-// Positions are never stored.
+// Stored positions are the driver's own only: store arrivals (trip steps) and, rounded to ~100 m, where each offer
+// found the phone (Zones heat map). Never a customer's.
 enum LocationAccess {
     static let manager = CLLocationManager()
 

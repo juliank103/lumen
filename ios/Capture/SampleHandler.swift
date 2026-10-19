@@ -255,8 +255,13 @@ final class SampleHandler: RPBroadcastSampleHandler {
                                      ?? "no drive-back credit (\(how))")
                         let refinedAt = Date()
                         timings["refined"] = ms(refinedAt)
-                        let extra: [String: Any] = ["offerId": offerId, "preliminaryNotice": preliminary.notice,
+                        var extra: [String: Any] = ["offerId": offerId, "preliminaryNotice": preliminary.notice,
                                                     "latencyFirstMs": ms(firstNotifiedAt), "latencyRefinedMs": ms(refinedAt)]
+                        if let fix = router.phoneFix {
+                            // Where the offer found the phone (Zones heat map), to ~100 m.
+                            extra["waitLat"] = (fix.lat * 1000).rounded() / 1000
+                            extra["waitLon"] = (fix.lon * 1000).rounded() / 1000
+                        }
                         guard var finalized = try? reader.finalize(summary, route: route, credit: credit, note: note,
                                                                    debug: trace.joined(separator: " · "), at: seenAt, extra: extra) else { return }
                         let update = reader.shouldUpdate(preliminaryWord: preliminary.word, refinedNotice: finalized.offer.notice ?? "")

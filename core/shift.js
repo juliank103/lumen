@@ -619,14 +619,154 @@
     };
   }
 
+  // MARK: Zones (where to wait)
+
+  /* How much an offer says "worth driving for" (user's rules: $1/mi incl. the return, $25/hr): the verdict on its
+   * notification, else its tone; the predicted $/hr when known. Older offers count less (half after 30 days). */
+  function offerWorth(o, now, targetHourlyCents) {
+    const notice = String(o.notice || '');
+    let q = 0.5;
+    if (/·\s*Accept\b/i.test(notice)) q = 1;
+    else if (/·\s*Decline\b/i.test(notice)) q = 0.25;
+    else if (/^Accept if\b/i.test(notice)) q = 0.6;
+    else if (o.tone === 'good') q = 1;
+    else if (o.tone === 'tight') q = 0.6;
+    else if (o.tone === 'bad') q = 0.25;
+    if (valid(o.hourlyCents) && targetHourlyCents) q = o.hourlyCents >= targetHourlyCents ? Math.max(q, 1) : Math.min(q, 0.5);
+    const age = (now - ms(o.seenAt)) / 86400000;
+    return { q, recency: Math.pow(0.5, Math.max(0, valid(age) ? age : 0) / 30), good: q >= 0.9 };
+  }
+
+  /* Friday from 3:30 PM through Sunday counts as the weekend (Friday dinner behaves like a weekend). */
+  function partMatches(at, offsetMinutes, part, days) {
+    const local = localMinute(at, offsetMinutes);
+    if (!local) return false;
+    const weekend = local.weekday === 0 || local.weekday === 6 || (local.weekday === 5 && local.minuteOfDay >= 930);
+    if (days === 'weekday' && weekend) return false;
+    if (days === 'weekend' && !weekend) return false;
+    return !part || part === 'all' || dayPart(local.minuteOfDay).key === part;
+  }
+
+  /* Where to wait (user, Oct 19: "a heat map that shows the best zones to wait in… it'll improve over time").
+   * Every offer read is evidence of demand at its restaurant(s), weighted by how good it was and how recent; offers also
+   * mark where the phone was when they arrived (waitLat/waitLon), the most direct evidence of a good place to wait. Each
+   * spreads over the area apps dispatch from (≈1 mi around a restaurant, ≈0.6 mi around a waiting spot). Filtered to a
+   * time-of-day period and weekdays/weekends. Restaurant positions: your arrivals, else an Apple Maps search (`places`).
+   * input: { restaurants (db), offers, places: {id: {lat, lon}}, shifts: [{startedAt, endedAt}], part, days,
+   *          now, offsetMinutes, targetHourlyCents } */
+  function zoneHeat(input) {
+    const db = input.restaurants && input.restaurants.restaurants ? input.restaurants : emptyDb();
+    const now = valid(ms(input.now)) ? ms(input.now) : Date.now();
+    const offset = input.offsetMinutes || 0, part = input.part || 'all', days = input.days || 'all';
+    const places = input.places || {};
+    const byId = {};
+    for (const r of db.restaurants) byId[r.id] = r;
+    const located = id => {
+      const r = byId[id];
+      if (!r) return null;
+      if (place(r)) return { lat: r.lat, lon: r.lon, source: 'visits' };
+      const p = places[id];
+      return p && valid(p.lat) && valid(p.lon) ? { lat: p.lat, lon: p.lon, source: 'search' } : null;
+    };
+    const points = [], perRestaurant = {}, unplaced = {};
+    let counted = 0, good = 0, fromSpots = 0, placed = 0;
+    for (const o of input.offers || []) {
+      if (!partMatches(o.seenAt, offset, part, days)) continue;
+      const w = offerWorth(o, now, input.targetHourlyCents);
+      counted++; if (w.good) good++;
+      const names = (o.merchants && o.merchants.length ? o.merchants : o.merchant ? [o.merchant] : []).filter(n => normalizeName(n));
+      const before = points.length;
+      for (const name of names) {
+        const id = matchRestaurant(db, name, null);
+        if (!id) continue;
+        const stat = perRestaurant[id] = perRestaurant[id] || { offers: 0, good: 0 };
+        stat.offers++; if (w.good) stat.good++;
+        const at = located(id);
+        if (at) points.push({ lat: at.lat, lon: at.lon, w: w.q * w.recency / names.length, sigma: 1.0 });
+        else unplaced[id] = (unplaced[id] || 0) + 1;
+      }
+      if (valid(o.waitLat) && valid(o.waitLon)) {
+        fromSpots++;
+        points.push({ lat: o.waitLat, lon: o.waitLon, w: 0.7 * w.q * w.recency, sigma: 0.6 });
+      }
+      if (points.length > before) placed++;
+    }
+    // Hours online in this period, for good offers per hour.
+    let minutes = 0;
+    for (const sh of input.shifts || []) {
+      const a = ms(sh.startedAt), b = valid(ms(sh.endedAt)) ? ms(sh.endedAt) : now;
+      if (!valid(a) || b <= a || b - a > 24 * 3600000) continue;
+      for (let t = a; t < b; t += 5 * 60000) if (partMatches(new Date(t).toISOString(), offset, part, days)) minutes += 5;
+    }
+    const hours = minutes / 60;
+    const restaurants = Object.keys(perRestaurant).map(id => {
+      const at = located(id);
+      return at ? { id, name: byId[id].name, lat: at.lat, lon: at.lon, source: at.source, offers: perRestaurant[id].offers,
+        good: perRestaurant[id].good } : null;
+    }).filter(Boolean).sort((a, b) => b.offers - a.offers);
+    // Confidence from the offers the map could place (a restaurant position or a waiting spot).
+    const result = { part, days, offers: counted, goodOffers: good, placedOffers: placed, fromSpots, hours: Math.round(hours * 10) / 10,
+      confidence: placed < 20 ? 'early' : placed < 80 ? 'building' : 'solid', cellMiles: null, cells: [], zones: [], restaurants,
+      unplaced: Object.keys(unplaced).sort((a, b) => unplaced[b] - unplaced[a]) };
+    if (!points.length) return result;
+
+    // Points on the same spot (≈100 m) are merged so long histories stay fast on the phone.
+    const merged = {};
+    for (const p of points) {
+      const key = p.lat.toFixed(3) + ',' + p.lon.toFixed(3) + ',' + p.sigma;
+      const m = merged[key] = merged[key] || { lat: p.lat, lon: p.lon, sigma: p.sigma, w: 0 };
+      m.w += p.w;
+    }
+    const sources = Object.values(merged);
+    const lat0 = sources.reduce((n, p) => n + p.lat, 0) / sources.length;
+    const milesPerLon = 69.17 * Math.cos(lat0 * Math.PI / 180);
+    let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+    for (const p of sources) {
+      minLat = Math.min(minLat, p.lat); maxLat = Math.max(maxLat, p.lat); minLon = Math.min(minLon, p.lon); maxLon = Math.max(maxLon, p.lon);
+    }
+    const pad = 1.5;
+    minLat -= pad / 69.05; maxLat += pad / 69.05; minLon -= pad / milesPerLon; maxLon += pad / milesPerLon;
+    let cell = 0.3;
+    while (((maxLat - minLat) * 69.05 / cell) * ((maxLon - minLon) * milesPerLon / cell) > 3600) cell *= 1.25;
+    const dLat = cell / 69.05, dLon = cell / milesPerLon;
+    const grid = [];
+    for (let la = minLat + dLat / 2; la < maxLat; la += dLat) {
+      for (let lo = minLon + dLon / 2; lo < maxLon; lo += dLon) {
+        let v = 0;
+        for (const p of sources) {
+          const dy = (la - p.lat) * 69.05, dx = (lo - p.lon) * milesPerLon, d2 = dx * dx + dy * dy;
+          if (d2 < 9 * p.sigma * p.sigma) v += p.w * Math.exp(-d2 / (2 * p.sigma * p.sigma));
+        }
+        grid.push({ lat: la, lon: lo, v });
+      }
+    }
+    const max = grid.reduce((m, c) => Math.max(m, c.v), 0);
+    if (!(max > 0)) return result;
+    const round = x => Math.round(x * 1e5) / 1e5;
+    result.cellMiles = Math.round(cell * 100) / 100;
+    result.cells = grid.filter(c => c.v >= 0.08 * max)
+      .map(c => ({ lat: round(c.lat), lon: round(c.lon), latSpan: round(dLat), lonSpan: round(dLon), value: Math.round(c.v / max * 100) / 100 }));
+    // The best spots: the strongest cells at least 1.5 mi apart, with the restaurants that make them.
+    for (const c of grid.slice().sort((a, b) => b.v - a.v)) {
+      if (c.v < 0.35 * max || result.zones.length >= 3) break;
+      if (result.zones.some(z => distanceMiles(z, c) < 1.5)) continue;
+      const around = restaurants.filter(r => distanceMiles(r, c) <= 1.5);
+      const goodNear = around.reduce((n, r) => n + r.good, 0), offersNear = around.reduce((n, r) => n + r.offers, 0);
+      result.zones.push({ lat: round(c.lat), lon: round(c.lon), value: Math.round(c.v / max * 100) / 100,
+        near: around.slice(0, 3).map(r => r.name), offers: offersNear, goodOffers: goodNear,
+        goodPerHour: hours >= 1 ? Math.round(goodNear / hours * 10) / 10 : null });
+    }
+    return result;
+  }
+
   const json = f => (...args) => JSON.stringify(f(...args.map(a => (typeof a === 'string' ? JSON.parse(a) : a))));
   const api = { METERS_PER_MILE, SAME_PLACE_MILES, normalizeName, similarity, distanceMiles, emptyDb, matchRestaurant, updateRestaurants,
     mergeRestaurants, renameRestaurant, mergeSuggestions, storeVisits, restaurantStats, mealPeriod, shiftMetrics, toCSV, exportTables,
-    rangeMetrics, weekStats, dayPart, dominantPart, DAY_PARTS,
+    rangeMetrics, weekStats, dayPart, dominantPart, DAY_PARTS, zoneHeat, offerWorth,
     // JSON bridges for the iPhone (every argument is JSON text).
     updateRestaurantsJSON: json(updateRestaurants), mergeRestaurantsJSON: json(mergeRestaurants), renameRestaurantJSON: json(renameRestaurant),
     mergeSuggestionsJSON: json(mergeSuggestions), restaurantStatsJSON: json(restaurantStats), shiftMetricsJSON: json(shiftMetrics),
-    exportTablesJSON: json(exportTables), weekStatsJSON: json(weekStats) };
+    exportTablesJSON: json(exportTables), weekStatsJSON: json(weekStats), zoneHeatJSON: json(zoneHeat) };
   root.Shift = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
