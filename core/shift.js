@@ -922,14 +922,45 @@
     return out;
   }
 
+  // MARK: Goals
+
+  /* Daily and weekly earnings goals (user, Oct 19), next to the per-shift goal. status of one period's earnings against its
+   * goal: progress, what's left, and what it takes — for a day, the minutes still needed at today's pace; for a week, the
+   * days left (counting today) and the dollars a day that needs. */
+  function goalStatus(m, goalCents, kind, now, rangeEnd) {
+    if (!(valid(goalCents) && goalCents > 0)) return null;
+    const earned = m.earningsCents, remaining = Math.max(0, goalCents - earned);
+    const out = { goalCents, earningsCents: earned, progress: Math.min(1, earned / goalCents), remainingCents: remaining, reached: earned >= goalCents };
+    if (!out.reached) {
+      if (kind === 'day' && valid(m.perOnlineHourCents) && m.perOnlineHourCents > 0) out.minutesAtPace = Math.round(remaining / m.perOnlineHourCents * 60);
+      if (kind === 'week') {
+        out.daysLeft = Math.max(1, Math.ceil((rangeEnd - now) / 86400000));
+        out.perDayCents = Math.ceil(remaining / out.daysLeft);
+      }
+    }
+    return out;
+  }
+  /* input: the week view's input ({ shifts, trips, entries, now, offsetMinutes }) plus day: { start, end }, week: { start, end },
+   * goals: { dailyCents, weeklyCents }. */
+  function goals(input) {
+    const g = input.goals || {}, now = ms(input.now);
+    const day = input.day ? rangeMetrics(input, input.day.start, input.day.end) : null;
+    const week = input.week ? rangeMetrics(input, input.week.start, input.week.end) : null;
+    return {
+      daily: day ? goalStatus(day, g.dailyCents, 'day', now, ms(input.day.end)) : null,
+      weekly: week ? goalStatus(week, g.weeklyCents, 'week', now, ms(input.week.end)) : null,
+      todayCents: day ? day.earningsCents : 0, weekCents: week ? week.earningsCents : 0
+    };
+  }
+
   const json = f => (...args) => JSON.stringify(f(...args.map(a => (typeof a === 'string' ? JSON.parse(a) : a))));
   const api = { METERS_PER_MILE, SAME_PLACE_MILES, normalizeName, similarity, distanceMiles, emptyDb, matchRestaurant, updateRestaurants,
     mergeRestaurants, renameRestaurant, mergeSuggestions, storeVisits, restaurantStats, mealPeriod, shiftMetrics, toCSV, exportTables,
-    rangeMetrics, weekStats, dayPart, dominantPart, DAY_PARTS, zoneHeat, offerWorth, parseGridwise, parseCSV,
+    rangeMetrics, weekStats, dayPart, dominantPart, DAY_PARTS, zoneHeat, offerWorth, parseGridwise, parseCSV, goalStatus, goals,
     // JSON bridges for the iPhone (every argument is JSON text).
     updateRestaurantsJSON: json(updateRestaurants), mergeRestaurantsJSON: json(mergeRestaurants), renameRestaurantJSON: json(renameRestaurant),
     mergeSuggestionsJSON: json(mergeSuggestions), restaurantStatsJSON: json(restaurantStats), shiftMetricsJSON: json(shiftMetrics),
-    exportTablesJSON: json(exportTables), weekStatsJSON: json(weekStats), zoneHeatJSON: json(zoneHeat), parseGridwiseJSON: json(parseGridwise) };
+    exportTablesJSON: json(exportTables), weekStatsJSON: json(weekStats), zoneHeatJSON: json(zoneHeat), parseGridwiseJSON: json(parseGridwise), goalsJSON: json(goals) };
   root.Shift = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

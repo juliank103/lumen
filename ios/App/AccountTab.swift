@@ -12,6 +12,7 @@ struct AccountTab: View {
     @AppStorage(AutoSteps.enabledKey) private var autoSteps = true
     @AppStorage(AudioCues.enabledKey) private var audioCues = true
     @State private var editingGoal = false
+    @ObservedObject private var goals = GoalStore.shared
     @State private var editingCost = false
     @State private var costText = ""
 
@@ -50,7 +51,7 @@ struct AccountTab: View {
                 }
                 Section("Goals and costs") {
                     Button { editingGoal = true } label: {
-                        row("Earnings goal per shift", shifts.defaultGoalCents.map { ShiftFormat.money($0) } ?? "None")
+                        row("Earnings goals", goalSummary)
                     }
                     .foregroundStyle(.primary)
                     Button { costText = costPerMile > 0 ? String(costPerMile) : ""; editingCost = true } label: {
@@ -108,6 +109,13 @@ struct AccountTab: View {
                 Text("Gas, wear, and insurance per mile. Used for earnings after costs in Stats.")
             }
         }
+    }
+
+    /// "Shift $150 · Day $200 · Week $1,000", or "None".
+    private var goalSummary: String {
+        let parts = [("Shift", shifts.defaultGoalCents), ("Day", goals.dailyCents), ("Week", goals.weeklyCents)]
+            .compactMap { label, cents in cents.map { label + " " + ShiftFormat.money($0) } }
+        return parts.isEmpty ? "None" : parts.joined(separator: " · ")
     }
 
     private func row(_ label: String, _ text: String) -> some View {

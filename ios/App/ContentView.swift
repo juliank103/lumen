@@ -76,6 +76,7 @@ struct DashTab: View {
                         }
                     }
                     ShiftSummaryCard()
+                    GoalsCard()
                 }
                 .padding(.horizontal, 20).padding(.vertical, 8)
             }

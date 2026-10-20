@@ -171,6 +171,23 @@ final class TripTests: XCTestCase {
         if case .success(let report) = GridwiseReport.parse("a,b\n1,2") { XCTAssertNil(report.kind) }
     }
 
+    /// The goals JSON from core/shift.js decodes into GoalsStatus (the Node tests can't see the Swift side of that).
+    @MainActor
+    func testGoalsDecodeFromTheEngine() {
+        let input = """
+        {"shifts":[],"trips":[],"entries":[{"id":"e1","kind":"extra","at":"2026-10-14T18:00:00Z","amountCents":8000,"category":"Tip"}],
+         "goals":{"dailyCents":20000,"weeklyCents":null},
+         "day":{"start":"2026-10-14T05:00:00Z","end":"2026-10-15T05:00:00Z"},
+         "week":{"start":"2026-10-12T05:00:00Z","end":"2026-10-19T05:00:00Z"},
+         "now":"2026-10-14T20:00:00Z","offsetMinutes":-300}
+        """
+        let status = ShiftEngine.decode(GoalsStatus.self, ShiftEngine.call("goalsJSON", [input]))
+        XCTAssertEqual(status?.todayCents, 8000)
+        XCTAssertEqual(status?.daily?.remainingCents, 12000)
+        XCTAssertEqual(status?.daily?.progress, 0.4)
+        XCTAssertNil(status?.weekly, "no weekly goal set")
+    }
+
     // Rule 2 of LifecycleSync: a pickup screen accepts only the offer from its store (Oct 18 shift).
     func testPickupScreenStoreCodeMatchesOnlyItsOffer() {
         let screen = LifecycleSignal.storeCode("Chipotle (375 N Milwaukee)")!

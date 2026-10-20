@@ -129,22 +129,12 @@ extension View {
     func goalEditor(isPresented: Binding<Bool>) -> some View { modifier(GoalEditor(isPresented: isPresented)) }
 }
 
+/// Per-shift, daily, and weekly goals in one sheet (GoalsSheet in GoalStore.swift).
 private struct GoalEditor: ViewModifier {
     @Binding var isPresented: Bool
-    @State private var text = ""
 
     func body(content: Content) -> some View {
-        content.alert("Earnings goal", isPresented: $isPresented) {
-            TextField("Dollars, e.g. 200", text: $text).keyboardType(.decimalPad)
-            Button("Save") { ShiftStore.shared.setGoal(Double(text.replacingOccurrences(of: "$", with: "")).map { Int(($0 * 100).rounded()) }) }
-            Button("No goal", role: .destructive) { ShiftStore.shared.setGoal(nil) }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Used for this shift and the next ones.")
-        }
-        .onChange(of: isPresented) { _, shown in
-            if shown { text = ShiftStore.shared.defaultGoalCents.map { String($0 / 100) } ?? "" }
-        }
+        content.sheet(isPresented: $isPresented) { GoalsSheet() }
     }
 }
 

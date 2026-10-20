@@ -59,6 +59,7 @@ struct StatsTab: View {
                         }
                         .padding(.bottom, 14)
                         .background(Theme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        WeekGoalRow(week: stats.week, editing: $editingGoal)
                         RatesLine(week: stats.week).padding(.horizontal, 4)
                         ByDayList(stats: stats, dates: week.days)
                         AppShareList(week: stats.week)
@@ -99,7 +100,7 @@ struct StatsTab: View {
                                 Button("Edit last shift's times…") { editingShift = ShiftEditTarget(shift: last) }
                             }
                         }
-                        Button("Earnings goal…") { editingGoal = true }
+                        Button("Goals…") { editingGoal = true }
                     } label: { Image(systemName: "ellipsis.circle") }
                     .accessibilityLabel("More options")
                 }
@@ -414,6 +415,7 @@ struct RatesLine: View {
 struct ByDayList: View {
     let stats: WeekStats
     let dates: [Date]
+    @ObservedObject private var goals = GoalStore.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -425,6 +427,10 @@ struct ByDayList: View {
                             HStack {
                                 Text(dates[index].formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
                                 Spacer()
+                                // A day that reached the daily goal.
+                                if let goal = goals.dailyCents, day.earningsCents >= goal {
+                                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).accessibilityLabel("Daily goal reached")
+                                }
                                 Text(ShiftFormat.money(day.earningsCents)).monospacedDigit()
                                 Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
                             }
