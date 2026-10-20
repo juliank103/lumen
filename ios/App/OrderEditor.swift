@@ -53,7 +53,15 @@ struct OrderEditor: View {
                 Section {
                     ForEach($stores) { $store in
                         let index = stores.firstIndex(where: { $0.id == store.id }) ?? 0
-                        StoreField(prompt: stores.count == 1 ? "Store" : "Store \(index + 1)", text: $store.name, platform: platform)
+                        HStack {
+                            StoreField(prompt: stores.count == 1 ? "Store" : "Store \(index + 1)", text: $store.name, platform: platform)
+                            // Put the pickups in the order they really happen (user, Oct 20).
+                            if index > 0 {
+                                Button { withAnimation { stores.swapAt(index, index - 1) } } label: { Image(systemName: "arrow.up.circle") }
+                                    .buttonStyle(.borderless)
+                                    .accessibilityLabel("Pick this one up earlier")
+                            }
+                        }
                     }
                     if stores.count < 6 {
                         Button { stores.append(StoreEdit(from: nil, name: "")) } label: { Label("Add a store", systemImage: "plus") }
@@ -72,7 +80,8 @@ struct OrderEditor: View {
                 } header: {
                     Text(stores.count == 1 ? "Pickup" : "Pickups (\(stores.count))")
                 } footer: {
-                    Text("Several orders from one store are one pickup.")
+                    Text(stores.count > 1 ? "Several orders from one store are one pickup. Tap ↑ to move a store earlier, so the list matches the order you pick them up."
+                         : "Several orders from one store are one pickup.")
                 }
                 Section {
                     Stepper("Drop-offs: \(dropoffs)", value: $dropoffs, in: minimumDropoffs...8)

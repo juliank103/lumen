@@ -425,6 +425,10 @@ final class TripStore: ObservableObject {
         guard !names.isEmpty else { return }
         var newIndex: [Int: Int] = [:]
         for (index, edit) in storeEdits.enumerated() { if let from = edit.from { newIndex[from] = index } }
+        // Only reordered (same stores, new order): the steps already ticked stay in place — the first arrival happened at
+        // the first pickup, which is now the store moved up (user, Oct 20: "store 1 is shown as my first pickup but it's
+        // actually store 2"). With stores added or removed, steps follow their store as before.
+        let reordered = storeEdits.allSatisfy { $0.from != nil } && Set(storeEdits.compactMap(\.from)).count == storeEdits.count
         func apply(_ trip: inout Trip) -> Bool {
             guard let index = trip.orders.firstIndex(where: { $0.offerId == offerId }) else { return false }
             var order = trip.orders[index]
@@ -440,6 +444,7 @@ final class TripStore: ObservableObject {
             }
             trip.steps = trip.steps.compactMap { step in
                 guard step.offerId == offerId, step.kind == .arrivedStore || step.kind == .leftStore else { return step }
+                if reordered && storeEdits.count == order.stores.count { return step }
                 guard let moved = newIndex[step.stop] else { return nil }
                 var step = step
                 step.stop = moved
