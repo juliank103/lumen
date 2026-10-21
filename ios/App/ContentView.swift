@@ -64,7 +64,10 @@ struct DashTab: View {
                     TimelineView(.periodic(from: .now, by: 5)) { context in
                         VStack(alignment: .leading, spacing: 16) {
                             // A new offer shows even on an order (stacking); the trip stays below it.
-                            if let offer = model.currentOffer {
+                            if let offer = model.currentOffer, trips.active != nil {
+                                // On an order: one compact row, the trip stays the screen (user, Oct 21).
+                                HomeOfferRow(offer: offer) { withAnimation { model.dismiss(offer) } }
+                            } else if let offer = model.currentOffer {
                                 if PreviewData.isActive || context.date.timeIntervalSince(offer.seenAt) < AppModel.offerHeroSeconds {
                                     HomeOfferCard(offer: offer) { withAnimation { model.dismiss(offer) } }
                                 } else {

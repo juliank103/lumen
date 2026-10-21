@@ -99,7 +99,8 @@ struct HomeShiftStrip: View {
 
     var body: some View {
         if let shift = shifts.current, let m = shifts.metrics {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("This Shift").font(.caption.weight(.semibold)).foregroundStyle(Theme.secondaryText)
                 HStack(alignment: .firstTextBaseline) {
                     Text(ShiftFormat.money(m.earningsCents)).font(.title2.weight(.bold)).monospacedDigit()
                     Spacer()
@@ -213,10 +214,7 @@ struct HomeOnOrder: View {
                     }
                 }
             }
-            ForEach(trip.orders) { order in HomeOrderCard(trip: trip, order: order, predictedHourly: trip.orders.count == 1 ? predictedHourly : nil) }
-            if trip.orders.count > 1, let predicted = predictedHourly {
-                Text("Together " + TripFormat.hourly(predicted) + " predicted").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.secondaryText)
-            }
+            HomeTripCard(trip: trip, predictedHourly: predictedHourly)
             Spacer(minLength: 12)
             if let next = trip.actions.first {
                 let what = describe(next)
@@ -364,5 +362,77 @@ extension Verdict {
         case .decline: return "xmark"
         case .maybe: return "minus"
         }
+    }
+}
+
+/// The trip on one card (user, Oct 21: "a stacked offer shouldn't have multiple progress bars"): a row per order (app,
+/// pay, stores when stacked, ⋯; tap to see or edit it), the predicted $/hr, and one progress bar for all the stops.
+struct HomeTripCard: View {
+    let trip: Trip
+    let predictedHourly: Int?
+    @State private var editing: OrderEditTarget?
+
+    var body: some View {
+        let stacked = trip.orders.count > 1
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(trip.orders) { order in
+                HStack(spacing: 10) {
+                    AppLogo(platform: order.platform, size: stacked ? 26 : 34)
+                    Text(TripFormat.dollars(order.payCents)).font(.system(size: stacked ? 22 : 28, weight: .heavy, design: .rounded))
+                    if stacked {
+                        Text(order.stores.joined(separator: " + ")).font(.subheadline).foregroundStyle(Theme.secondaryText).lineLimit(1)
+                    }
+                    Spacer()
+                    if !stacked, let predicted = predictedHourly ?? order.predictedHourlyCents {
+                        VStack(alignment: .trailing, spacing: 0) {
+                            Text(TripFormat.hourly(predicted)).font(.title3.weight(.bold))
+                            Text("predicted").font(.caption).foregroundStyle(Theme.secondaryText)
+                        }
+                    }
+                    if order.ended == nil { OrderOptionsMenu(trip: trip, order: order) }
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { editing = OrderEditTarget(offerId: order.offerId) }
+            }
+            if stacked, let predicted = predictedHourly {
+                Text("Together " + TripFormat.hourly(predicted) + " predicted").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.secondaryText)
+            }
+            OrderCheckpoints(trip: trip)
+        }
+        .padding(20)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .sheet(item: $editing) { target in OrderEditor(offerId: target.offerId) }
+    }
+}
+
+/// An offer that comes in while you're on an order (user, Oct 21: "shouldn't take up the whole screen"): one row —
+/// the verdict, $/mi and $/hr, pay and store, add it to the trip, or dismiss.
+struct HomeOfferRow: View {
+    let offer: LiveOffer
+    let onDismiss: () -> Void
+
+    var body: some View {
+        let verdict = Verdict(notice: offer.notice)
+        let color = Theme.color(verdict)
+        let parts = (offer.notice ?? "").components(separatedBy: "·").map { $0.trimmingCharacters(in: .whitespaces) }
+        let rates = parts.filter { $0.hasSuffix("/mi") || $0.hasSuffix("/hr") }.joined(separator: " · ")
+        HStack(spacing: 12) {
+            Image(systemName: verdict.icon).font(.system(size: 16, weight: .black)).foregroundStyle(Theme.ground)
+                .frame(width: 34, height: 34).background(color, in: Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(rates.isEmpty ? verdict.banner : rates).font(.headline).monospacedDigit().lineLimit(1)
+                Text([TripFormat.dollars(offer.payCents), offer.merchants?.first ?? offer.merchant].compactMap { $0 }.joined(separator: " · "))
+                    .font(.caption).foregroundStyle(Theme.secondaryText).lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            AcceptButton(offer: offer, compact: true)
+            Button(action: onDismiss) {
+                Image(systemName: "xmark").font(.subheadline.weight(.bold)).foregroundStyle(Theme.secondaryText).frame(width: 36, height: 44)
+            }
+            .accessibilityLabel("Dismiss offer")
+        }
+        .padding(.leading, 12).padding(.trailing, 4).padding(.vertical, 8)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(color, lineWidth: 1.5))
     }
 }

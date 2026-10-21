@@ -61,23 +61,53 @@ struct TripCard: View {
 /// The order's stages as a line of checkpoints (user, Oct 18): accepted, then each store (arrived, picked up), then each
 /// drop-off (arrived, delivered). Done ones fill in, the next one is ringed, and the line between them fills as it goes.
 struct OrderCheckpoints: View {
-    let trip: Trip
-    let order: Trip.Order
-
     struct Stage { let label: String; let done: Bool; let left: Bool }
+    let stages: [Stage]
 
-    /// Arrivals only (user, Oct 21): each store, then each drop-off. `left`: picked up / delivered there.
-    private var stages: [Stage] {
-        var list: [Stage] = []
+    /// One order's stops: each store, then each drop-off. `done`: arrived; `left`: picked up / delivered there.
+    init(trip: Trip, order: Trip.Order) {
+        stages = Self.numbered(Self.stops(trip, order).map(\.stage))
+    }
+
+    /// The whole trip on one bar (user, Oct 21: "a stacked offer shouldn't have multiple progress bars"): the stops already
+    /// reached in the order you reached them, then the rest — stores before drop-offs, in the order the orders came in.
+    init(trip: Trip) {
+        let all = trip.orders.flatMap { Self.stops(trip, $0) }
+        let reached = all.filter { $0.stage.done }.sorted { ($0.at ?? .distantPast) < ($1.at ?? .distantPast) }
+        // Stores before drop-offs, otherwise in the orders' own order (a stable sort).
+        let ahead = all.enumerated().filter { !$0.element.stage.done }
+            .sorted { ($0.element.store ? 0 : 1, $0.offset) < ($1.element.store ? 0 : 1, $1.offset) }.map(\.element)
+        stages = Self.numbered((reached + ahead).map(\.stage))
+    }
+
+    /// Drop-offs numbered along the bar when there's more than one.
+    private static func numbered(_ list: [Stage]) -> [Stage] {
+        guard list.filter({ $0.label == "Drop-off" }).count > 1 else { return list }
+        var n = 0
+        return list.map { stage in
+            guard stage.label == "Drop-off" else { return stage }
+            n += 1
+            return Stage(label: "Drop-off \(n)", done: stage.done, left: stage.left)
+        }
+    }
+
+    private struct Stop { let stage: Stage; let at: Date?; let store: Bool }
+
+    private static func stops(_ trip: Trip, _ order: Trip.Order) -> [Stop] {
+        let done = order.completed
+        var list: [Stop] = []
         for (stop, store) in order.stores.enumerated() {
-            let left = trip.has(.leftStore, order.offerId, stop)
-            list.append(Stage(label: store, done: trip.has(.arrivedStore, order.offerId, stop) || left, left: left))
+            let left = done || trip.has(.leftStore, order.offerId, stop)
+            let arrival = trip.steps.first { $0.offerId == order.offerId && $0.stop == stop && ($0.kind == .arrivedStore || $0.kind == .leftStore) }?.at
+            list.append(Stop(stage: Stage(label: store, done: done || arrival != nil || left, left: left), at: arrival ?? (done ? order.endedAt : nil), store: true))
         }
-        let arrived = trip.count(.arrivedDropoff, order.offerId), delivered = trip.count(.delivered, order.offerId)
+        let arrivals = trip.steps.filter { $0.offerId == order.offerId && ($0.kind == .arrivedDropoff || $0.kind == .delivered) }.map(\.at).sorted()
+        let delivered = trip.count(.delivered, order.offerId)
         for d in 0..<max(1, order.dropoffs) {
-            list.append(Stage(label: order.dropoffs > 1 ? "Drop-off \(d + 1)" : "Drop-off", done: arrived > d || delivered > d, left: delivered > d))
+            let arrived = done || max(trip.count(.arrivedDropoff, order.offerId), delivered) > d
+            let at = arrivals.indices.contains(d) ? arrivals[d] : (done ? order.endedAt : nil)
+            list.append(Stop(stage: Stage(label: "Drop-off", done: arrived, left: done || delivered > d), at: at, store: false))
         }
-        if order.completed { return list.map { Stage(label: $0.label, done: true, left: true) } }
         return list
     }
 
