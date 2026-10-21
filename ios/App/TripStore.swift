@@ -203,7 +203,7 @@ final class TripStore: ObservableObject {
     private static let staleAfter: TimeInterval = 3 * 3600
 
     private init() {
-        if PreviewData.isActive { active = PreviewData.showsTrip ? PreviewData.trip : nil; history = PreviewData.earlierDays.trips + PreviewData.pastTrips; return }
+        if PreviewData.isActive { active = PreviewData.state == "orderNew" ? PreviewData.newTrip : PreviewData.showsTrip ? PreviewData.trip : nil; history = PreviewData.earlierDays.trips + PreviewData.pastTrips; return }
         load()
     }
 

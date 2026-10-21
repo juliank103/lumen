@@ -94,18 +94,23 @@ struct OrderCheckpoints: View {
             let w = geo.size.width, segment = w / Double(n)
             ZStack(alignment: .topLeading) {
                 Capsule().fill(Theme.track).frame(width: w, height: 8).offset(y: 7)
-                Capsule().fill(Theme.purple).frame(width: max(8, w * fill), height: 8).offset(y: 7)
-                    .animation(.easeOut(duration: 0.4), value: fill)
+                // Empty until the first arrival (user's sketch, Oct 21): no purple at all before the store.
+                if fill > 0 {
+                    Capsule().fill(Theme.purple).frame(width: w * fill, height: 8).offset(y: 7)
+                        .animation(.easeOut(duration: 0.4), value: fill)
+                }
                 ForEach(Array(stages.enumerated()), id: \.offset) { index, stage in
                     let x = segment * Double(index + 1)
-                    marker(done: stage.done, next: index == reached)
+                    let last = index == stages.count - 1
+                    marker(done: stage.done, next: index == reached && reached > 0)
                         .position(x: min(x, w - 11), y: 11)
+                    // Each stop's name centered under its circle; the last one ends at the bar's end.
                     Text(stage.label)
                         .font(.caption.weight(index == reached ? .bold : .medium))
                         .foregroundStyle(stage.done || index == reached ? Color.primary : Theme.secondaryText)
                         .lineLimit(1).minimumScaleFactor(0.75)
-                        .frame(width: segment - 4, alignment: .trailing)
-                        .position(x: x - segment / 2, y: 36)
+                        .frame(width: segment - 4, alignment: last ? .trailing : .center)
+                        .position(x: last ? w - segment / 2 + 2 : x, y: 36)
                 }
             }
         }
