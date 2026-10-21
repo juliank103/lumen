@@ -285,12 +285,37 @@ struct HomeOrderCard: View {
 
 /// The order's ⋯ menu: unassigned, cancelled, remove, and count fixes.
 struct OrderOptionsMenu: View {
+    let trip: Trip
+    /// One order, or several from the same app (stacked): then a submenu per order, named by its stores.
+    let orders: [Trip.Order]
+
+    init(trip: Trip, order: Trip.Order) { self.trip = trip; self.orders = [order] }
+    init(trip: Trip, orders: [Trip.Order]) { self.trip = trip; self.orders = orders }
+
+    var body: some View {
+        Menu {
+            if orders.count == 1, let order = orders.first {
+                OrderOptionsContent(trip: trip, order: order)
+            } else {
+                ForEach(orders) { order in
+                    Menu(order.stores.joined(separator: " + ")) { OrderOptionsContent(trip: trip, order: order) }
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis").font(.body.weight(.bold)).foregroundStyle(Theme.secondaryText)
+                .frame(width: 44, height: 44)
+        }
+        .accessibilityLabel("Order options")
+    }
+}
+
+/// The options for one order: unassigned, cancelled, remove, and count fixes.
+struct OrderOptionsContent: View {
     @ObservedObject private var store = TripStore.shared
     let trip: Trip
     let order: Trip.Order
 
     var body: some View {
-        Menu {
             Menu("I unassigned it") {
                 Button("Long wait at the store") { store.end(order.offerId, .unassigned(reason: "excessive_wait")) }
                 Button("Store closed") { store.end(order.offerId, .unassigned(reason: "restaurant_closed")) }
@@ -309,11 +334,6 @@ struct OrderOptionsMenu: View {
                 Button("Remove a drop-off") { store.adjust(order.offerId, dropoffs: -1) }
             }
             Button("Add a store") { store.adjust(order.offerId, addStore: true) }
-        } label: {
-            Image(systemName: "ellipsis").font(.body.weight(.bold)).foregroundStyle(Theme.secondaryText)
-                .frame(width: 44, height: 44)
-        }
-        .accessibilityLabel("Order options")
     }
 }
 
@@ -375,29 +395,43 @@ struct HomeTripCard: View {
     let predictedHourly: Int?
     @State private var editing: OrderEditTarget?
 
+    /// One row per app (user, Oct 21: within one app you only ever know the stacked total — "$19.35, not the two
+    /// separate amounts"): its total pay and all its stores. Two apps at once get a row each.
+    private var groups: [[Trip.Order]] {
+        var order: [String] = [], byApp: [String: [Trip.Order]] = [:]
+        for o in trip.orders {
+            if byApp[o.platform] == nil { order.append(o.platform) }
+            byApp[o.platform, default: []].append(o)
+        }
+        return order.compactMap { byApp[$0] }
+    }
+
     var body: some View {
-        let stacked = trip.orders.count > 1
+        let groups = self.groups
+        let multiApp = groups.count > 1
         VStack(alignment: .leading, spacing: 14) {
-            ForEach(trip.orders) { order in
+            ForEach(Array(groups.enumerated()), id: \.offset) { _, orders in
                 HStack(spacing: 10) {
-                    AppLogo(platform: order.platform, size: stacked ? 26 : 34)
-                    Text(TripFormat.dollars(order.payCents)).font(.system(size: stacked ? 22 : 28, weight: .heavy, design: .rounded))
-                    if stacked {
-                        Text(order.stores.joined(separator: " + ")).font(.subheadline).foregroundStyle(Theme.secondaryText).lineLimit(1)
+                    AppLogo(platform: orders[0].platform, size: multiApp ? 26 : 34)
+                    Text(TripFormat.dollars(orders.reduce(0) { $0 + $1.payCents }))
+                        .font(.system(size: multiApp ? 22 : 28, weight: .heavy, design: .rounded))
+                    if orders.count > 1 || multiApp {
+                        Text(orders.flatMap(\.stores).joined(separator: " + ")).font(.subheadline).foregroundStyle(Theme.secondaryText).lineLimit(1)
                     }
                     Spacer()
-                    if !stacked, let predicted = predictedHourly ?? order.predictedHourlyCents {
+                    if !multiApp, let predicted = predictedHourly {
                         VStack(alignment: .trailing, spacing: 0) {
                             Text(TripFormat.hourly(predicted)).font(.title3.weight(.bold))
                             Text("predicted").font(.caption).foregroundStyle(Theme.secondaryText)
                         }
                     }
-                    if order.ended == nil { OrderOptionsMenu(trip: trip, order: order) }
+                    let open = orders.filter { $0.ended == nil }
+                    if !open.isEmpty { OrderOptionsMenu(trip: trip, orders: open) }
                 }
                 .contentShape(Rectangle())
-                .onTapGesture { editing = OrderEditTarget(offerId: order.offerId) }
+                .onTapGesture { editing = OrderEditTarget(offerId: (orders.last { $0.ended == nil } ?? orders[0]).offerId) }
             }
-            if stacked, let predicted = predictedHourly {
+            if multiApp, let predicted = predictedHourly {
                 Text("Together " + TripFormat.hourly(predicted) + " predicted").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.secondaryText)
             }
             OrderCheckpoints(trip: trip)
