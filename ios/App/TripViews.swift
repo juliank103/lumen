@@ -81,15 +81,15 @@ struct OrderCheckpoints: View {
         return list
     }
 
-    /// A traditional progress bar (user, Oct 21: "the progress bar is ugly"): the track fills from the accept to the
-    /// last checkpoint reached, half way on to the next once you've left it; a marker sits at each checkpoint, its stop
-    /// named under it.
+    /// A traditional progress bar (user, Oct 21: "the progress bar is ugly", then three sketches): empty until the first
+    /// arrival, the fill runs to the last stop reached, a ring per stop that turns bold when you're there and solid when
+    /// you're done there, the stop's name centered under it.
     var body: some View {
         let stages = self.stages
         let n = max(1, stages.count)
         let reached = stages.prefix { $0.done }.count
-        let leaving = reached > 0 && reached < n && stages[reached - 1].left
-        let fill = (Double(reached) + (leaving ? 0.5 : 0)) / Double(n)
+        // The fill reaches each stop's circle on arrival and waits there until the next arrival (user's sketches, Oct 21).
+        let fill = Double(reached) / Double(n)
         GeometryReader { geo in
             let w = geo.size.width, segment = w / Double(n)
             ZStack(alignment: .topLeading) {
@@ -120,12 +120,11 @@ struct OrderCheckpoints: View {
     }
 
     /// The user's sketches (Oct 21): ahead = plain gray ring; here (arrived, not yet left) = bold purple ring the fill
-    /// reaches; left (picked up / delivered) = filled with a check.
+    /// reaches; done there (picked up / delivered) = solid purple.
     private func marker(left: Bool, here: Bool) -> some View {
         ZStack {
             Circle().fill(left ? Theme.purple : Theme.ground).frame(width: here ? 26 : 22, height: here ? 26 : 22)
             Circle().stroke(left || here ? Theme.purple : Theme.track, lineWidth: here ? 4 : 2).frame(width: here ? 26 : 22, height: here ? 26 : 22)
-            if left { Image(systemName: "checkmark").font(.system(size: 10, weight: .black)).foregroundStyle(.white) }
         }
     }
 }
