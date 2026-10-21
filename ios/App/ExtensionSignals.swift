@@ -3,6 +3,7 @@ import Combine
 
 // Counts signals from the capture extension while the app is open (Darwin notifications are not queued).
 final class ExtensionSignals: ObservableObject {
+    static let offerReceived = Notification.Name("lumen.offerReceived")
     @Published private(set) var selfTestReceived = false
     @Published private(set) var loadedAt: Date?
     @Published private(set) var startedAt: Date?
@@ -47,7 +48,9 @@ final class ExtensionSignals: ObservableObject {
             startedAt = now; finishedAt = nil; readerFailed = false
             MainActor.assumeIsolated { ShiftStore.shared.startIfNeeded() }
         case .frame: frames += 1; lastFrameAt = now
-        case .offer: offers += 1
+        case .offer:
+            offers += 1
+            NotificationCenter.default.post(name: Self.offerReceived, object: nil)
         case .readerFailed: readerFailed = true
         case .finished:
             finishedAt = now

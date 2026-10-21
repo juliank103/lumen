@@ -85,6 +85,7 @@ final class ShiftStore: ObservableObject {
         resolveHome()
         save(force: true)
         refreshMetrics()
+        TripActivityController.update(TripStore.shared.active) // The shift's Live Activity (Dynamic Island).
     }
 
     /// `exact`: end at `now` as given (the driver set the end time), not at the pause.
@@ -99,6 +100,7 @@ final class ShiftStore: ObservableObject {
         tracker.stop()
         save(force: true)
         refreshMetrics()
+        TripActivityController.update(TripStore.shared.active)
     }
 
     /// Reading stopped. With no trip running the shift pauses (and ends after 30 minutes); during a trip it continues.

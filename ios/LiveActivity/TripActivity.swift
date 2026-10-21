@@ -2,16 +2,33 @@ import ActivityKit
 import AppIntents
 import Foundation
 
-/// The active trip on the lock screen and in the Dynamic Island (review item): timer, pace, and the next step as a
-/// button. Compiled into the app and the widget extension. Button taps run in the app (LiveActivityIntent).
+/// The shift on the lock screen and in the Dynamic Island (user, Oct 21): one Live Activity for the whole shift that
+/// shows, by priority, the reader having stopped, a new offer's verdict (45 s), the trip, or the shift's earnings and
+/// goal. Compiled into the app and the widget extension. Button taps run in the app (LiveActivityIntent).
 struct TripActivityAttributes: ActivityAttributes {
     struct ContentState: Codable, Hashable {
+        /// "readerOff", "offer", "trip", or "idle".
+        var mode: String = "trip"
+        /// The trip's start (trip) or the shift's (idle), for the running clock.
         var startedAt: Date
         var paceText: String
         var payText: String
         var orderCount: Int
         var nextLabel: String?
         var nextActionId: String?
+        // Idle: the shift so far and the day's goal.
+        var earningsText: String? = nil
+        var hourlyText: String? = nil
+        var milesText: String? = nil
+        var goalProgress: Double? = nil
+        var goalText: String? = nil
+        // Offer: verdict ("accept", "decline", "maybe"), $/mi, $/hr, pay, store, and when the decision time ends.
+        var verdict: String? = nil
+        var perMileText: String? = nil
+        var perHourText: String? = nil
+        var offerPayText: String? = nil
+        var offerStore: String? = nil
+        var offerUntil: Date? = nil
     }
     var tripId: String
 }

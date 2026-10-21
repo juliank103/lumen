@@ -25,11 +25,16 @@ final class AppModel: ObservableObject {
     /// Offers swiped away (or X'd) on the Dash; they stay in the Offers tab.
     @Published private(set) var dismissed: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "dismissedOffers") ?? [])
     private var timer: AnyCancellable?
+    private var offerObserver: AnyCancellable?
     private var archive: [LiveOffer] = OfferArchive.load()
 
     init() {
         LifecycleSync.shared.model = self
         timer = Timer.publish(every: 3, on: .main, in: .common).autoconnect().sink { [weak self] _ in
+            Task { await self?.refresh() }
+        }
+        // The reader just posted an offer: pick it up now (Dynamic Island verdict) instead of at the next tick.
+        offerObserver = NotificationCenter.default.publisher(for: ExtensionSignals.offerReceived).sink { [weak self] _ in
             Task { await self?.refresh() }
         }
     }
@@ -112,6 +117,7 @@ final class AppModel: ObservableObject {
         if archive.count != offers.count || archive.last?.id != offers.last?.id { offers = archive }
         journalCount = OfferJournal.readShared().count
         if screenCaptured { ShiftStore.shared.startIfNeeded() }
+        TripActivityController.offer = currentOffer
         TripActivityController.refresh(TripStore.shared.active)
         RestaurantStore.shared.update(offers: offers, trips: TripStore.shared.history + [TripStore.shared.active].compactMap { $0 })
     }

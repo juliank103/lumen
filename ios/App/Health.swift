@@ -17,6 +17,9 @@ final class ReadingMonitor {
 
     func readingFinished(at now: Date = Date()) { finishedAt = now }
 
+    /// Screen reading stopped without being stopped (20 s+): the Dynamic Island shows "Reader off".
+    var stoppedUnexpectedly: Bool { alerted }
+
     func check(now: Date = Date()) {
         if UIScreen.main.isCaptured {
             if alerted { UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [Self.notificationId]) }
