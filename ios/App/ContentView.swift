@@ -64,7 +64,7 @@ struct DashTab: View {
                     }
                     TimelineView(.periodic(from: .now, by: 5)) { context in
                         if let offer = model.currentOffer {
-                            if PreviewData.isActive || context.date.timeIntervalSince(offer.seenAt) < 90 {
+                            if PreviewData.isActive || context.date.timeIntervalSince(offer.seenAt) < AppModel.offerHeroSeconds {
                                 OfferHero(offer: offer) { withAnimation { model.dismiss(offer) } }
                             } else {
                                 LastOfferRow(offer: offer) { withAnimation { model.dismiss(offer) } }

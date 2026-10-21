@@ -49,14 +49,19 @@ final class AppModel: ObservableObject {
         await refresh()
     }
 
-    /// The newest offer for the Dash: not dismissed and not already part of a trip (the trip card shows those).
+    /// Only the newest offer ever shows on Home (user, Oct 21: "way too many offers to dismiss"): dismissing it, taking it,
+    /// or a newer one arriving makes it go, and older offers never come back. Offers live on the Offers page.
     var latestOffer: LiveOffer? {
-        offers.last { !dismissed.contains($0.id) && TripStore.shared.trip(for: $0.offerId ?? $0.id) == nil }
+        guard let offer = offers.last, !dismissed.contains(offer.id), TripStore.shared.trip(for: offer.offerId ?? offer.id) == nil else { return nil }
+        return offer
     }
 
-    /// The offer worth showing on the Dash: the latest one, if it's from the last 15 minutes.
+    /// Big card for 45 s (the apps give about that long to decide), then one line until 3 minutes, then gone by itself.
+    static let offerHeroSeconds: TimeInterval = 45
+    static let offerLineSeconds: TimeInterval = 180
+
     var currentOffer: LiveOffer? {
-        guard let offer = latestOffer, PreviewData.isActive || Date().timeIntervalSince(offer.seenAt) < 15 * 60 else { return nil }
+        guard let offer = latestOffer, PreviewData.isActive || Date().timeIntervalSince(offer.seenAt) < Self.offerLineSeconds else { return nil }
         return offer
     }
 

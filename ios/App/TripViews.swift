@@ -67,17 +67,16 @@ struct OrderCheckpoints: View {
     struct Stage { let label: String; let done: Bool }
 
     private var stages: [Stage] {
-        var list = [Stage(label: "Accepted", done: true)]
+        // Checkpoints are arrivals only (user, Oct 21): each store, then each drop-off.
+        var list: [Stage] = []
         let multi = order.stores.count > 1
         for (stop, store) in order.stores.enumerated() {
-            list.append(Stage(label: multi ? "At \(store)" : "At the store", done: trip.has(.arrivedStore, order.offerId, stop)))
-            list.append(Stage(label: multi ? "Picked up at \(store)" : "Picked up", done: trip.has(.leftStore, order.offerId, stop)))
+            list.append(Stage(label: multi ? "At \(store)" : "At the store",
+                              done: trip.has(.arrivedStore, order.offerId, stop) || trip.has(.leftStore, order.offerId, stop)))
         }
         let arrived = trip.count(.arrivedDropoff, order.offerId), delivered = trip.count(.delivered, order.offerId)
         for d in 0..<max(1, order.dropoffs) {
-            let n = order.dropoffs > 1 ? " \(d + 1)" : ""
-            list.append(Stage(label: "At drop-off" + n, done: arrived > d || delivered > d))
-            list.append(Stage(label: "Delivered" + n, done: delivered > d))
+            list.append(Stage(label: "At drop-off" + (order.dropoffs > 1 ? " \(d + 1)" : ""), done: arrived > d || delivered > d))
         }
         if order.completed { return list.map { Stage(label: $0.label, done: true) } }
         return list
