@@ -28,6 +28,9 @@ final class SampleHandler: RPBroadcastSampleHandler {
     private let router = ReturnRouter()
     private var pendingFingerprint: String?
     private var notifiedFingerprint: String?
+    /// App and pay of offers already notified, and when: the same card read again (it slid away and back, or a digit of
+    /// its miles was misread) is not another offer (user, Oct 21: "way too many verdicts").
+    private var notifiedOffers: [String: Date] = [:]
     private var framesWithoutOffer = 0
     // Order-state reading (screens after accepting): last top-of-screen read, the candidate state, and the last one sent.
     private var lastStatusRead = Date.distantPast
@@ -216,6 +219,10 @@ final class SampleHandler: RPBroadcastSampleHandler {
         }
         notifiedFingerprint = summary.fingerprint
         pendingFingerprint = nil
+        let sameOffer = summary.fingerprint.split(separator: "|").prefix(2).joined(separator: "|")
+        notifiedOffers = notifiedOffers.filter { capturedAt.timeIntervalSince($0.value) < 90 }
+        guard notifiedOffers[sameOffer] == nil else { return }
+        notifiedOffers[sameOffer] = capturedAt
         // DoorDash "Deliver by": minutes come from the clock shown in the status bar (top left).
         if summary.needsClock, let clock = statusBarClock(frame),
            let timed = try reader.summarize(cardLines, at: capturedAt, clockText: clock) {
@@ -225,12 +232,10 @@ final class SampleHandler: RPBroadcastSampleHandler {
         let offerId = "\(summary.platform)-\(Int(seenAt.timeIntervalSince1970))-\(Self.fnv(summary.fingerprint))"
         let ms = { (date: Date) in Int((date.timeIntervalSince(seenAt) * 1000).rounded()) }
 
-        // Stage 1: immediate notification.
+        // One notification per offer, with the finished verdict (user, Oct 21: "no verdict … until the calculations are
+        // done"). The quick worst-case verdict is still worked out for the journal (prediction vs refined), not shown.
         let preliminary = (try? reader.preliminary(summary, credit: router.recentCredit)) ?? (word: "Unreadable", notice: "Check offer")
-        notify(id: offerId, title: summary.headline, body: Verdict(notice: preliminary.notice).dot + " " + preliminary.notice, thread: "offers",
-               userInfo: Self.offerStub(summary, offerId: offerId), category: NotificationActions.offerCategory)
         let firstNotifiedAt = Date()
-        Signal.offer.post()
 
         // Stage 2: refined verdict.
         var delivered = false, finalized = false
@@ -284,7 +289,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
                 deliver(route, route == nil ? [mapReason.map { "Map: \($0)" }, note].compactMap { $0 }.joined(separator: ". ") : nil)
             }
         }
-        processing.asyncAfter(deadline: .now() + 12) { deliver(nil, "Apple Maps did not answer within 12 seconds") }
+        // Apple Maps normally answers in 1–2 s; with nothing shown until then, don't wait longer than 6.
+        processing.asyncAfter(deadline: .now() + 6) { deliver(nil, "Apple Maps did not answer within 6 seconds") }
         guard summary.dropoffQuery == nil else {
             trace.append("drop-off text on card")
             return fallback(nil)
@@ -329,8 +335,9 @@ final class SampleHandler: RPBroadcastSampleHandler {
         if let value = LiveOfferStorage.notificationValue(offer) { userInfo[LiveOfferStorage.notificationKey] = value }
         let notice = offer.notice ?? offer.detail
         notify(id: offer.offerId ?? offer.id, title: offer.headline,
-               body: Verdict(notice: offer.notice).dot + (update ? " UPDATE · " : " ") + notice, thread: "offers", userInfo: userInfo,
+               body: Verdict(notice: offer.notice).dot + " " + notice, thread: "offers", userInfo: userInfo,
                category: NotificationActions.offerCategory)
+        Signal.offer.post() // The app shows it on Home and in the Dynamic Island.
         // Journal (addendum §8–11): append-only events — what the card showed, then each prediction with the logic
         // versions behind it. Times carry the local UTC offset so learning can bucket by the driver's own clock.
         let settings = (try? JSONSerialization.jsonObject(with: Data(OfferReader.settingsJSON.utf8))) as? [String: Any] ?? [:]
