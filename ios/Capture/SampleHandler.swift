@@ -213,7 +213,9 @@ final class SampleHandler: RPBroadcastSampleHandler {
         if firstSeen[summary.fingerprint] == nil { firstSeen[summary.fingerprint] = capturedAt }
         if firstSeen.count > 200 { firstSeen = firstSeen.filter { capturedAt.timeIntervalSince($0.value) < 3600 } }
         guard summary.fingerprint != notifiedFingerprint else { return }
-        guard summary.confidence >= 0.9 || summary.fingerprint == pendingFingerprint else {
+        // Two reads in a row must agree on app, pay, and miles before anything is sent (user, Oct 21: "this app doesn't
+        // work if reading isn't perfect"); a misread digit doesn't repeat on the next frame, so it never goes out.
+        guard summary.fingerprint == pendingFingerprint else {
             pendingFingerprint = summary.fingerprint
             return
         }
@@ -289,8 +291,9 @@ final class SampleHandler: RPBroadcastSampleHandler {
                 deliver(route, route == nil ? [mapReason.map { "Map: \($0)" }, note].compactMap { $0 }.joined(separator: ". ") : nil)
             }
         }
-        // Apple Maps normally answers in 1–2 s; with nothing shown until then, don't wait longer than 6.
-        processing.asyncAfter(deadline: .now() + 6) { deliver(nil, "Apple Maps did not answer within 6 seconds") }
+        // Build 36 cut this to 6 s and the return often wasn't worked out in time, so verdicts fell back to "Accept if
+        // return ≤ …" (more maybes, Oct 21). Wait up to 12 s again: the one notification goes out when it's done.
+        processing.asyncAfter(deadline: .now() + 12) { deliver(nil, "Apple Maps did not answer within 12 seconds") }
         guard summary.dropoffQuery == nil else {
             trace.append("drop-off text on card")
             return fallback(nil)

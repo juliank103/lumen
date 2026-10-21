@@ -193,6 +193,26 @@ struct HomeOnOrder: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
+            // The shift (earnings, $/hr, shift clock, miles), then the order's own clock and live pace (user, Oct 21:
+            // "you can't see your elapsed on order time or hourly pace").
+            HomeShiftStrip()
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(TripFormat.clock(trip.elapsed(context.date)))
+                            .font(.system(size: 44, weight: .heavy, design: .rounded)).monospacedDigit()
+                        Text("on this order").font(.subheadline.weight(.medium)).foregroundStyle(Theme.secondaryText)
+                    }
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 2) {
+                        let pace = trip.paceCents(context.date)
+                        Text(pace.map(TripFormat.hourly) ?? "—")
+                            .font(.system(size: 30, weight: .heavy, design: .rounded)).monospacedDigit()
+                            .foregroundStyle((pace ?? 0) >= RulesStore.current.hourlyTargetCents ? Theme.neonGreen : Theme.neonYellow)
+                        Text("pace").font(.subheadline.weight(.medium)).foregroundStyle(Theme.secondaryText)
+                    }
+                }
+            }
             ForEach(trip.orders) { order in HomeOrderCard(trip: trip, order: order, predictedHourly: trip.orders.count == 1 ? predictedHourly : nil) }
             if trip.orders.count > 1, let predicted = predictedHourly {
                 Text("Together " + TripFormat.hourly(predicted) + " predicted").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.secondaryText)
@@ -250,14 +270,6 @@ struct HomeOrderCard: View {
                 if order.ended == nil { OrderOptionsMenu(trip: trip, order: order) }
             }
             OrderCheckpoints(trip: trip, order: order)
-            HStack {
-                ForEach(Array(stopNames.enumerated()), id: \.offset) { index, name in
-                    Text(name).font(.caption.weight(index == nextIndex ? .bold : .medium))
-                        .foregroundStyle(index == nextIndex ? Color.primary : Theme.secondaryText)
-                        .lineLimit(1)
-                    if index < stopNames.count - 1 { Spacer(minLength: 4) }
-                }
-            }
         }
         .padding(20)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -267,16 +279,7 @@ struct HomeOrderCard: View {
         .accessibilityHint("Shows the order's details to view or change")
     }
 
-    private var stopNames: [String] {
-        order.stores + (0..<max(1, order.dropoffs)).map { order.dropoffs > 1 ? "Drop-off \($0 + 1)" : "Drop-off" }
-    }
 
-    private var nextIndex: Int? {
-        let arrivedStores = order.stores.indices.map { trip.has(.arrivedStore, order.offerId, $0) || trip.has(.leftStore, order.offerId, $0) }
-        if let i = arrivedStores.firstIndex(of: false) { return i }
-        let arrived = max(trip.count(.arrivedDropoff, order.offerId), trip.count(.delivered, order.offerId))
-        return arrived < max(1, order.dropoffs) ? order.stores.count + arrived : nil
-    }
 }
 
 /// The order's ⋯ menu: unassigned, cancelled, remove, and count fixes.

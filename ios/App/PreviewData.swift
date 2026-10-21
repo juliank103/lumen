@@ -7,6 +7,16 @@ enum PreviewData {
     /// The screen tour (UI test) forces dark mode, the user's phone setting.
     static var forcedScheme: ColorScheme? { ProcessInfo.processInfo.arguments.contains("-dark") ? .dark : nil }
 
+    /// Which Home state the preview shows (user, Oct 21: "preview states of the app on my computer"): `waiting`, `offer`,
+    /// `order`, or `orderOffer` (an offer arriving during an order). `-state <name>`; the screen tour's default is `order`.
+    static var state: String {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "-state"), i + 1 < args.count else { return "order" }
+        return args[i + 1]
+    }
+    static var showsTrip: Bool { state == "order" || state == "orderOffer" }
+    static var showsOffer: Bool { state == "offer" || state == "orderOffer" }
+
     static var initialTab: Int {
         let args = ProcessInfo.processInfo.arguments
         guard let i = args.firstIndex(of: "-tab"), i + 1 < args.count else { return 0 }
@@ -85,7 +95,7 @@ enum PreviewData {
             ("grubhub", 876, 10200, "Roadtrip Bowls by Lazy Dog", "$0.85/mi · Decline", "bad", -1500),
             ("doordash", 850, 3500, "Mendocino Farms", "≈$1.06/mi · Close call", "tight", -1100),
             ("uber_eats", 2706, 11900, "Olive Garden", "$1.31/mi · $27/hr · Accept", "good", -600),
-            ("uber_eats", 1384, 6700, "Five Guys", "$1.62/mi · $29/hr · Accept", "good", -45)
+            ("uber_eats", 1384, 6700, "Five Guys", "$1.62/mi · $29/hr · Accept", "good", -12)
         ]
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601

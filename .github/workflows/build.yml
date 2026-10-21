@@ -57,6 +57,14 @@ jobs:
             -derivedDataPath testbuild -only-testing:LumenTests CODE_SIGNING_ALLOWED=NO > test.log 2>&1 || true
           grep -E '\*\* TEST' test.log || true
           grep -q '\*\* TEST SUCCEEDED' test.log
+      # Home in each state (waiting, offer, on an order…) with invented data, to look at on the computer.
+      - name: Home states (screenshots)
+        continue-on-error: true
+        run: |
+          xcodebuild test -project Lumen.xcodeproj -scheme Lumen -destination 'platform=iOS Simulator,name=iPhone 16 Pro Max'             -derivedDataPath testbuild -resultBundlePath states.xcresult -only-testing:LumenUITests/HomeStates CODE_SIGNING_ALLOWED=NO > states.log 2>&1 || true
+          mkdir -p states-raw dist/states
+          xcrun xcresulttool export attachments --path states.xcresult --output-path states-raw || true
+          python3 ../tools/name-tour.py states-raw dist/states || true
       # Outputs are encrypted: the build carries personal settings, and artifacts of a public repo are downloadable.
       - name: Encrypt outputs
         if: always()
@@ -65,6 +73,7 @@ jobs:
         run: |
           mkdir -p out
           zip -qj out/bundle.zip dist/*.ipa build.log test.log 2>/dev/null || zip -qj out/bundle.zip build.log
+          (cd dist && zip -qr ../out/bundle.zip states) 2>/dev/null || true
           openssl enc -aes-256-cbc -pbkdf2 -salt -in out/bundle.zip -out out/bundle.enc -pass env:ARTIFACT_KEY
           rm out/bundle.zip
       - uses: actions/upload-artifact@v4

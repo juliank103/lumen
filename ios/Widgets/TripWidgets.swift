@@ -113,7 +113,10 @@ private struct ExpandedTrailing: View {
         case "readerOff":
             EmptyView()
         case "trip":
-            Text(state.paceText).font(.headline).foregroundStyle(accept)
+            VStack(alignment: .trailing, spacing: 0) {
+                Text(state.paceText).font(.headline).foregroundStyle(accept)
+                Text("pace").font(.caption2).foregroundStyle(secondary)
+            }
         default:
             VStack(alignment: .trailing, spacing: 0) {
                 Text(state.hourlyText ?? "").font(.headline).monospacedDigit()
@@ -134,7 +137,13 @@ private struct ExpandedBottom: View {
             Text("Tap to open __APP_NAME__ and start reading.").font(.subheadline).foregroundStyle(secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         case "trip":
-            StepButtons(state: state)
+            VStack(alignment: .leading, spacing: 8) {
+                // The shift alongside the order (user, Oct 21).
+                if let earnings = state.earningsText {
+                    Text("Shift " + earnings + " · " + (state.hourlyText ?? "—")).font(.caption).foregroundStyle(secondary).monospacedDigit()
+                }
+                StepButtons(state: state)
+            }
         default:
             GoalLine(state: state)
         }

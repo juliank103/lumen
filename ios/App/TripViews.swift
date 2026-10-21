@@ -64,41 +64,62 @@ struct OrderCheckpoints: View {
     let trip: Trip
     let order: Trip.Order
 
-    struct Stage { let label: String; let done: Bool }
+    struct Stage { let label: String; let done: Bool; let left: Bool }
 
+    /// Arrivals only (user, Oct 21): each store, then each drop-off. `left`: picked up / delivered there.
     private var stages: [Stage] {
-        // Checkpoints are arrivals only (user, Oct 21): each store, then each drop-off.
         var list: [Stage] = []
-        let multi = order.stores.count > 1
         for (stop, store) in order.stores.enumerated() {
-            list.append(Stage(label: multi ? "At \(store)" : "At the store",
-                              done: trip.has(.arrivedStore, order.offerId, stop) || trip.has(.leftStore, order.offerId, stop)))
+            let left = trip.has(.leftStore, order.offerId, stop)
+            list.append(Stage(label: store, done: trip.has(.arrivedStore, order.offerId, stop) || left, left: left))
         }
         let arrived = trip.count(.arrivedDropoff, order.offerId), delivered = trip.count(.delivered, order.offerId)
         for d in 0..<max(1, order.dropoffs) {
-            list.append(Stage(label: "At drop-off" + (order.dropoffs > 1 ? " \(d + 1)" : ""), done: arrived > d || delivered > d))
+            list.append(Stage(label: order.dropoffs > 1 ? "Drop-off \(d + 1)" : "Drop-off", done: arrived > d || delivered > d, left: delivered > d))
         }
-        if order.completed { return list.map { Stage(label: $0.label, done: true) } }
+        if order.completed { return list.map { Stage(label: $0.label, done: true, left: true) } }
         return list
     }
 
+    /// A traditional progress bar (user, Oct 21: "the progress bar is ugly"): the track fills from the accept to the
+    /// last checkpoint reached, half way on to the next once you've left it; a marker sits at each checkpoint, its stop
+    /// named under it.
     var body: some View {
         let stages = self.stages
-        let next = stages.firstIndex { !$0.done }
-        HStack(spacing: 0) {
-            ForEach(Array(stages.enumerated()), id: \.offset) { index, stage in
-                if index > 0 {
-                    Rectangle().fill(stage.done ? Theme.purple : Color.secondary.opacity(0.3)).frame(height: 3)
-                }
-                ZStack {
-                    Circle().fill(stage.done ? Theme.purple : Color.clear).frame(width: 12, height: 12)
-                    Circle().stroke(stage.done || index == next ? Theme.purple : Color.secondary.opacity(0.4), lineWidth: index == next ? 2.5 : 1.5)
-                        .frame(width: index == next ? 15 : 12, height: index == next ? 15 : 12)
+        let n = max(1, stages.count)
+        let reached = stages.prefix { $0.done }.count
+        let leaving = reached > 0 && reached < n && stages[reached - 1].left
+        let fill = (Double(reached) + (leaving ? 0.5 : 0)) / Double(n)
+        GeometryReader { geo in
+            let w = geo.size.width, segment = w / Double(n)
+            ZStack(alignment: .topLeading) {
+                Capsule().fill(Theme.track).frame(width: w, height: 8).offset(y: 7)
+                Capsule().fill(Theme.purple).frame(width: max(8, w * fill), height: 8).offset(y: 7)
+                    .animation(.easeOut(duration: 0.4), value: fill)
+                ForEach(Array(stages.enumerated()), id: \.offset) { index, stage in
+                    let x = segment * Double(index + 1)
+                    marker(done: stage.done, next: index == reached)
+                        .position(x: min(x, w - 11), y: 11)
+                    Text(stage.label)
+                        .font(.caption.weight(index == reached ? .bold : .medium))
+                        .foregroundStyle(stage.done || index == reached ? Color.primary : Theme.secondaryText)
+                        .lineLimit(1).minimumScaleFactor(0.75)
+                        .frame(width: segment - 4, alignment: .trailing)
+                        .position(x: x - segment / 2, y: 36)
                 }
             }
         }
+        .frame(height: 46)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(stages.filter(\.done).count) of \(stages.count) steps done" + (next.map { ", next: " + stages[$0].label } ?? ""))
+        .accessibilityLabel("\(reached) of \(stages.count) stops reached" + (reached < stages.count ? ", next: " + stages[reached].label : ""))
+    }
+
+    private func marker(done: Bool, next: Bool) -> some View {
+        ZStack {
+            Circle().fill(done ? Theme.purple : Theme.ground).frame(width: 22, height: 22)
+            Circle().stroke(done || next ? Theme.purple : Theme.track, lineWidth: next ? 3 : 2).frame(width: 22, height: 22)
+            if done { Image(systemName: "checkmark").font(.system(size: 10, weight: .black)).foregroundStyle(.white) }
+        }
     }
 }
 

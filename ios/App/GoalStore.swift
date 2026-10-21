@@ -13,6 +13,7 @@ final class GoalStore: ObservableObject {
     private init() {
         dailyCents = UserDefaults.standard.object(forKey: "dailyGoalCents") as? Int
         weeklyCents = UserDefaults.standard.object(forKey: "weeklyGoalCents") as? Int
+        if PreviewData.isActive { dailyCents = 20_000; weeklyCents = 100_000 }
     }
 
     func set(daily: Int?, weekly: Int?) {

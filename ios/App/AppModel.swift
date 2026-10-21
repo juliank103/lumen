@@ -66,6 +66,7 @@ final class AppModel: ObservableObject {
     static let offerLineSeconds: TimeInterval = 180
 
     var currentOffer: LiveOffer? {
+        if PreviewData.isActive && !PreviewData.showsOffer { return nil }
         guard let offer = latestOffer, PreviewData.isActive || Date().timeIntervalSince(offer.seenAt) < Self.offerLineSeconds else { return nil }
         return offer
     }
