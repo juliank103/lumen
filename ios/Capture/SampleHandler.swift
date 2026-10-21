@@ -405,11 +405,26 @@ final class SampleHandler: RPBroadcastSampleHandler {
     }
 
     /// The offer map above the card: town-name text and a 200-pixel-wide RGBA copy for pin detection. Transient.
+    /// A notification banner across the top: its time stamp ("now", "2m ago") or an app's name in the top strip.
+    static func bannerShown(_ lines: [OfferReader.Line]) -> Bool {
+        lines.contains { line in
+            line.y < 0.18 && line.text.range(of: #"^(now|\d+\s?[smh] ago)$|__APP_NAME__|DoorDash|Dasher|Uber|Grubhub|Instacart|Messages"#,
+                                               options: [.regularExpression, .caseInsensitive]) != nil
+        }
+    }
+
     private func mapAnalysis(of frame: CIImage, summary: OfferReader.Summary, reader: OfferReader) -> OfferReader.MapAnalysis? {
         let extent = frame.extent
-        // Below the strip where notification banners (including __APP_NAME__'s own) cover the map.
-        let top = 0.13, bottom = max(top + 0.1, min(summary.mapBottom, 0.6))
-        let lines = recognize(frame, top: top, bottom: bottom, level: .fast)
+        // The whole map from just under the status bar: DoorDash puts pins and town names near the top (Oct 21
+        // screenshots; the old 13% cutoff hid a store pin and "Riverside"). Only when a notification banner covers the
+        // top is that strip left out — a screen recording sees the banner, not what's under it.
+        let bottom = max(0.2, min(summary.mapBottom, 0.6))
+        var top = 0.055
+        var lines = recognize(frame, top: top, bottom: bottom, level: .fast)
+        if Self.bannerShown(lines) {
+            top = 0.18
+            lines = lines.filter { $0.y >= top }
+        }
         let region = frame.cropped(to: CGRect(x: extent.minX, y: extent.minY + extent.height * CGFloat(1 - bottom),
                                               width: extent.width, height: extent.height * CGFloat(bottom - top)))
         let pixelScale = 200 / extent.width

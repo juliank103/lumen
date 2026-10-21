@@ -27,7 +27,9 @@
     // Grubhub's "orders" stat label, but not DoorDash's "Pick up 3 orders" (that made a DoorDash card a tie, unread).
     grubhub: [/Delivery pay \+ tip/i, /^Add on$/i, /(^|\s)miles(\s|$)/i, /^(?!Pick up\b)(.*\s)?orders?(\s|$)/i, /(^|\s)minutes(\s|$)/i, /\bReject$/i, /^Food delivery$/i, /^Bundle$/i]
   };
-  const PAY = /^\$\s?(\d{1,3})\.(\d{2})(?!\d)/;
+  // Whole dollars too, but only as the whole line: Uber shows "$15" on round offers (Oct 21 screenshot, read as no offer
+  // at all); a "$27 65" with its point lost must not read as $27.
+  const PAY = /^\$\s?(\d{1,3})(?:\.(\d{2})(?!\d)|(?:\s+[0Oo°•◆])?$)/;
 
   // Strip a stray icon glyph that OCR reads as a one-character token ("o Olive Garden", "0 56 min", "O mapbox").
   function clean(text) {
@@ -217,7 +219,11 @@
     if (!candidates.length) return null;
     const line = candidates.reduce((a, b) => (b.h > a.h ? b : a));
     const m = PAY.exec(line.text);
-    return { line, cents: Number(m[1]) * 100 + Number(m[2]) };
+    // Whole dollars only when no cents were split off beside them ("$27" + ".65" read as two lines).
+    // …and only $1–$99: "$438" is $4.38 with its point lost, never a $438 offer.
+    if (m[2] === undefined && m[1].length > 2) return null;
+    if (m[2] === undefined && lines.some(o => o !== line && Math.abs(o.y - line.y) < line.h && o.x > line.x && /^[.,]?\d/.test(o.text))) return null;
+    return { line, cents: Number(m[1]) * 100 + Number(m[2] || 0) };
   }
   const below = (lines, ref) => lines.filter(l => l.y > ref.y + ref.h * 0.5);
   const isAddress = text => /\d/.test(text) && /,/.test(text);
@@ -269,9 +275,17 @@
     } else {
       // "Early look" offer during a delivery (Oct 15 2026): "Est. delivery 7:00 PM • 11.2 mi", restaurant, then the
       // drop-off cross-streets and town. The time is a clock time, turned into minutes like DoorDash's "Deliver by".
-      const est = lines.find(l => /Est\.?\s*delivery\s+\d{1,2}:\d{2}\s*[AP]\.?M\s*\S\s*[\d.]+\s*mi/i.test(l.text));
+      // The time and the miles can come back as two pieces of one row ("Est. delivery 5:27 PM" + "• 11.5 mi"): rejoin.
+      // The "•" between time and miles is optional: OCR can drop it, and then "PM 11.5 mi" must not read as 1.5 mi.
+      const EST = /Est\.?\s*delivery\s+(\d{1,2}):(\d{2})\s*([AP])\.?M\s*(?:[^\d\s]\s*)?(\d[\d.]*)\s*mi/i;
+      let est = lines.find(l => EST.test(l.text));
+      if (!est) {
+        const head = lines.find(l => /Est\.?\s*delivery\s+\d{1,2}:\d{2}\s*[AP]\.?M$/i.test(l.text));
+        const tail = head && lines.find(l => l !== head && Math.abs(l.y - head.y) < 0.012 && l.x > head.x && /^\S?\s*[\d.]+\s*mi$/i.test(l.text));
+        if (tail) est = Object.assign({}, head, { text: head.text + ' ' + (/^[\d]/.test(tail.text) ? '• ' : '') + tail.text });
+      }
       if (est) {
-        const m = /Est\.?\s*delivery\s+(\d{1,2}):(\d{2})\s*([AP])\.?M\s*\S\s*([\d.]+)\s*mi/i.exec(est.text);
+        const m = EST.exec(est.text);
         f.milesText = m[4];
         f.deliverByMinutes = (Number(m[1]) % 12 + (/p/i.test(m[3]) ? 12 : 0)) * 60 + Number(m[2]);
         // Not a stray map label at the card's edge ("01" beside the restaurant, Oct 18).

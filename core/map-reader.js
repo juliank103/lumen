@@ -6,7 +6,7 @@
   'use strict';
   const MILES_PER_RADIAN = 3958.8;
   // Stamped on journaled predictions (addendum §9); bump when pin/label/fit logic changes.
-  const VERSION = 'map-2026-10-14b'; // build 23: phone-anchored dot, geographic pickup pin, route-scaled fit
+  const VERSION = 'map-2026-10-21'; // build 23: phone-anchored dot, geographic pickup pin, route-scaled fit
 
   // Pin styles seen in the user's screenshots (October 2026). anchorBelow: pin tip/anchor below the disc center, in radii.
   const STYLES = {
@@ -271,23 +271,36 @@
    * dot agree with the real geography: try each pin and keep the clearly best fit (oct 14: nearest-to-the-dot was wrong
    * when the driver passed the drop-offs on the way). Returns { index, fit } or null. */
   function choosePickupPin(found, controls, pickupPlace, outboundMilliMiles) {
+    const out = Number.isSafeInteger(outboundMilliMiles) ? outboundMilliMiles / 1000 : null;
     const tries = found.pins.map((pin, index) => {
       const fit = fitMap(controls.concat([{ x: pin.x, y: pin.y, lat: pickupPlace.lat, lon: pickupPlace.lon, weight: 4 }]), found.aspect);
       if (!fit) return null;
-      // The straight line dot → pickup → drop-offs cannot be much longer than the app's road miles.
-      if (Number.isSafeInteger(outboundMilliMiles) && found.currentLocation) {
+      // The straight line (dot →) pickup → drop-offs cannot be much longer than the app's road miles. Without the dot
+      // (hidden under a pin, Oct 21 screenshots) the pickup → drop-offs part alone still has to fit, and how well it
+      // fits the miles tells two pins apart when the places alone can't (one town + the restaurant fit any pin).
+      let mismatch = 0;
+      if (out !== null) {
         const rest = found.pins.filter((_, j) => j !== index);
-        const path = [found.currentLocation, pin].concat(nearestFirst(pin, rest));
+        const path = (found.currentLocation ? [found.currentLocation, pin] : [pin]).concat(nearestFirst(pin, rest));
         let units = 0;
         for (let k = 1; k < path.length; k++) units += Math.hypot(path[k].x - path[k - 1].x, (path[k].y - path[k - 1].y) * found.aspect);
-        if (units * fit.milesPerUnit > outboundMilliMiles / 1000 * 1.15 + 0.3) return null;
+        const miles = units * fit.milesPerUnit;
+        if (miles > out * 1.15 + 0.3) return null;
+        mismatch = Math.abs(miles * DETOUR - out) / out;
       }
-      return { index, fit };
-    }).filter(Boolean).sort((p, q) => p.fit.residualMiles - q.fit.residualMiles);
+      return { index, fit, mismatch };
+    }).filter(Boolean).sort((p, q) => p.fit.residualMiles - q.fit.residualMiles || p.mismatch - q.mismatch);
     if (!tries.length) return null;
     const [best, second] = tries;
     if (best.fit.residualMiles > 0.6) return null;
-    if (second && second.fit.residualMiles < best.fit.residualMiles * 1.6 + 0.05) return null; // Ambiguous.
+    if (second && second.fit.residualMiles < best.fit.residualMiles * 1.6 + 0.05) {
+      // The places fit both about as well: weigh in the trip miles too, and take the pin that's clearly best on both.
+      if (out === null) return null;
+      const score = t => t.fit.residualMiles + 0.5 * t.mismatch;
+      const ranked = tries.slice().sort((p, q) => score(p) - score(q));
+      if (score(ranked[1]) < score(ranked[0]) * 1.4) return null;
+      return ranked[0];
+    }
     return best;
   }
 
