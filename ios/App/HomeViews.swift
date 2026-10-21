@@ -194,29 +194,8 @@ struct HomeOnOrder: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            // The shift (earnings, $/hr, shift clock, miles), then the order's own clock and live pace (user, Oct 21:
-            // "you can't see your elapsed on order time or hourly pace").
+            // The shift (earnings, $/hr, shift clock, miles), then the order card with its own clock and pace.
             HomeShiftStrip()
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(TripFormat.clock(trip.elapsed(context.date)))
-                            .font(.system(size: 44, weight: .heavy, design: .rounded)).monospacedDigit()
-                        Text("on this order").font(.subheadline.weight(.medium)).foregroundStyle(Theme.secondaryText)
-                    }
-                    Spacer()
-                    VStack(alignment: .trailing, spacing: 2) {
-                        // The live pace means little in the first minutes ($580/hr at 1:34): the offer's predicted $/hr
-                        // until 10 minutes in, then the live pace.
-                        let early = trip.elapsed(context.date) < 600 && predictedHourly != nil
-                        let pace = early ? predictedHourly : trip.paceCents(context.date)
-                        Text(pace.map(TripFormat.hourly) ?? "—")
-                            .font(.system(size: 30, weight: .heavy, design: .rounded)).monospacedDigit()
-                            .foregroundStyle((pace ?? 0) >= RulesStore.current.hourlyTargetCents ? Theme.neonGreen : Theme.neonYellow)
-                        Text(early ? "predicted" : "pace").font(.subheadline.weight(.medium)).foregroundStyle(Theme.secondaryText)
-                    }
-                }
-            }
             HomeTripCard(trip: trip, predictedHourly: predictedHourly)
             Spacer(minLength: 12)
             if let next = trip.actions.first {
@@ -435,6 +414,27 @@ struct HomeTripCard: View {
                 Text("Together " + TripFormat.hourly(predicted) + " predicted").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.secondaryText)
             }
             OrderCheckpoints(trip: trip)
+            // Time on this order and its pace, under the progress bar in the same card (user, Oct 21).
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(TripFormat.clock(trip.elapsed(context.date)))
+                            .font(.system(size: 40, weight: .heavy, design: .rounded)).monospacedDigit()
+                        Text("on this order").font(.subheadline.weight(.medium)).foregroundStyle(Theme.secondaryText)
+                    }
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 2) {
+                        // The live pace means little in the first minutes ($580/hr at 1:34): the offer's predicted $/hr
+                        // until 10 minutes in, then the live pace.
+                        let early = trip.elapsed(context.date) < 600 && predictedHourly != nil
+                        let pace = early ? predictedHourly : trip.paceCents(context.date)
+                        Text(pace.map(TripFormat.hourly) ?? "—")
+                            .font(.system(size: 28, weight: .heavy, design: .rounded)).monospacedDigit()
+                            .foregroundStyle((pace ?? 0) >= RulesStore.current.hourlyTargetCents ? Theme.neonGreen : Theme.neonYellow)
+                        Text(early ? "predicted" : "pace").font(.subheadline.weight(.medium)).foregroundStyle(Theme.secondaryText)
+                    }
+                }
+            }
         }
         .padding(20)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
