@@ -102,7 +102,7 @@ struct OrderCheckpoints: View {
                 ForEach(Array(stages.enumerated()), id: \.offset) { index, stage in
                     let x = segment * Double(index + 1)
                     let last = index == stages.count - 1
-                    marker(done: stage.done, next: index == reached && reached > 0)
+                    marker(left: stage.left, here: stage.done && !stage.left)
                         .position(x: min(x, w - 11), y: 11)
                     // Each stop's name centered under its circle; the last one ends at the bar's end.
                     Text(stage.label)
@@ -119,11 +119,13 @@ struct OrderCheckpoints: View {
         .accessibilityLabel("\(reached) of \(stages.count) stops reached" + (reached < stages.count ? ", next: " + stages[reached].label : ""))
     }
 
-    private func marker(done: Bool, next: Bool) -> some View {
+    /// The user's sketches (Oct 21): ahead = plain gray ring; here (arrived, not yet left) = bold purple ring the fill
+    /// reaches; left (picked up / delivered) = filled with a check.
+    private func marker(left: Bool, here: Bool) -> some View {
         ZStack {
-            Circle().fill(done ? Theme.purple : Theme.ground).frame(width: 22, height: 22)
-            Circle().stroke(done || next ? Theme.purple : Theme.track, lineWidth: next ? 3 : 2).frame(width: 22, height: 22)
-            if done { Image(systemName: "checkmark").font(.system(size: 10, weight: .black)).foregroundStyle(.white) }
+            Circle().fill(left ? Theme.purple : Theme.ground).frame(width: here ? 26 : 22, height: here ? 26 : 22)
+            Circle().stroke(left || here ? Theme.purple : Theme.track, lineWidth: here ? 4 : 2).frame(width: here ? 26 : 22, height: here ? 26 : 22)
+            if left { Image(systemName: "checkmark").font(.system(size: 10, weight: .black)).foregroundStyle(.white) }
         }
     }
 }

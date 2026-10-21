@@ -31,6 +31,7 @@ final class HomeStates: XCTestCase {
         capture("waiting")
         capture("offer")
         capture("orderNew", name: "order-just-accepted")
+        capture("orderAtStore", name: "order-at-first-store")
         capture("order")
         capture("orderOffer", name: "order-with-offer")
         for (tab, name) in [(1, "offers"), (2, "earnings")] { capture("waiting", extra: ["-tab", String(tab)], name: name) }

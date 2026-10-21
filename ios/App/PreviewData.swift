@@ -14,7 +14,7 @@ enum PreviewData {
         guard let i = args.firstIndex(of: "-state"), i + 1 < args.count else { return "order" }
         return args[i + 1]
     }
-    static var showsTrip: Bool { state == "order" || state == "orderOffer" || state == "orderNew" }
+    static var showsTrip: Bool { state == "order" || state == "orderOffer" || state == "orderNew" || state == "orderAtStore" }
 
     /// Just accepted (state `orderNew`): two stores and two drop-offs, nothing reached yet — the empty progress bar.
     static let newTrip: Trip = {
@@ -22,7 +22,9 @@ enum PreviewData {
         return Trip(id: "trip-preview-new", startedAt: now.addingTimeInterval(-90), orders: [
             Trip.Order(offerId: "preview-new", platform: "doordash", payCents: 1520, merchant: "Potbelly", stores: ["Potbelly", "Cafe Zupas"],
                        dropoffs: 2, acceptedAt: now.addingTimeInterval(-90), ended: nil, endedAt: nil)
-        ], steps: [], endedAt: nil)
+        ], steps: state == "orderAtStore"
+            ? [Trip.Step(id: "pn1", kind: .arrivedStore, offerId: "preview-new", stop: 0, label: "Arrived at Potbelly", at: now.addingTimeInterval(-20))]
+            : [], endedAt: nil)
     }()
     static var showsOffer: Bool { state == "offer" || state == "orderOffer" }
 
