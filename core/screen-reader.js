@@ -25,14 +25,18 @@
     doordash: [/incl\. tips/i, /^Deliver by\b/i, /Customer dropoff/i, /^((Retail|Grocery|Shop|Store)\s+)?Pickup$/i, /\bstops?\s*\(\s*[\d.]+\s*mi\)/i, /^Decline$/i,
       /Multiple dropoffs\s*\(\d+/i, /^Pick up \d+ (orders?|items?)$/i],
     // Grubhub's "orders" stat label, but not DoorDash's "Pick up 3 orders" (that made a DoorDash card a tie, unread).
-    grubhub: [/Delivery pay \+ tip/i, /(^|\s)miles(\s|$)/i, /^(?!Pick up\b)(.*\s)?orders?(\s|$)/i, /(^|\s)minutes(\s|$)/i, /\bReject$/i, /^Food delivery$/i, /^Bundle$/i]
+    grubhub: [/Delivery pay \+ tip/i, /^Add on$/i, /(^|\s)miles(\s|$)/i, /^(?!Pick up\b)(.*\s)?orders?(\s|$)/i, /(^|\s)minutes(\s|$)/i, /\bReject$/i, /^Food delivery$/i, /^Bundle$/i]
   };
   const PAY = /^\$\s?(\d{1,3})\.(\d{2})(?!\d)/;
 
   // Strip a stray icon glyph that OCR reads as a one-character token ("o Olive Garden", "0 56 min", "O mapbox").
   function clean(text) {
     return String(text).replace(/\s+/g, ' ').trim()
-      .replace(/^(?:[^A-Za-z0-9$(\s]{1,2}|[a-z0-9@]|O)\s+(?=[A-Z0-9$(])|^[oOe@]\s+(?=[a-z]{3})/, '');
+      .replace(/^(?:[^A-Za-z0-9$(\s]{1,2}|[a-z0-9@]|O)\s+(?=[A-Z0-9$(])|^[oOe@]\s+(?=[a-z]{3})/, '')
+      // Add-on offers during an order (user, Oct 21: DoorDash "+$9.15 incl. tips", "+1 stop (7.8 mi) • +15 min";
+      // Grubhub "+$6.10", "+1.3 +1"): the plus signs go, and a lone "+9.15" (its "$" lost by OCR) is the pay.
+      .replace(/^\+\s?(\d{1,3}\.\d{2})$/, '$$$1')
+      .replace(/(^|[\s(])\+\s?(?=[$\d])/g, '$1');
   }
   /* Numbers misread as letters ("$1O.37", "(6.O mi)", "$12,37"): in tokens that already hold a digit, O/o→0, l/I/|→1,
    * S→5, B→8; and a decimal comma before "mi", ")" or the end becomes a point (Oct 18 2026, OCR noise model). */
@@ -304,6 +308,8 @@
         if (/Multiple dropoffs|Customer dropoff|Guaranteed|^Accept/i.test(l.text)) break;
         const after = below(lines, l)[0];
         if (!isAddress(l.text) && after && isAddress(after.text)) {
+          // An add-on lists the current order's store too (greyed, often the same store): each store once.
+          if (f.merchants.includes(l.text)) continue;
           f.merchants.push(l.text);
           if (!f.routing.pickupQuery) f.routing.pickupQuery = after.text;
         }
@@ -325,6 +331,8 @@
     const drops = lines.filter(l => /Customer dropoff/i.test(l.text)).length;
     const multiple = lines.map(l => /Multiple dropoffs\s*\((\d+)\s*stops?\)/i.exec(l.text)).find(Boolean);
     f.orderCount = multiple ? Number(multiple[1]) : drops || null;
+    // An add-on ("+$9.15", "+1 stop") also lists the order already in hand: count only what it adds.
+    if (lines.some(l => /^\+\s?\$?\d/.test(String(l.raw || '').trim()))) { f.addOn = true; f.orderCount = f.stopCount || 1; }
   }
   function readGrubhub(lines, pay, f, problems) {
     // Number over label ("21.9" / "miles"), or both on one line as some text recognizers return them.

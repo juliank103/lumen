@@ -1,14 +1,18 @@
 import SwiftUI
 
-// Dasher-app look in purple instead of DoorDash red (user, Oct 14). Verdicts in neon: green Accept, red Decline,
-// yellow for anything uncertain. Neon chips use black text so they read in light and dark mode.
+// Visual language (user, Oct 21, approved preview): dark-first; purple only on what you can tap; verdict colors only on
+// verdicts, always with an icon (they differ in lightness, not hue alone). Verdict chips use dark text.
 enum Theme {
-    static let purple = Color(red: 0.42, green: 0.22, blue: 0.96)      // primary, like Dasher's red
-    static let purpleSoft = Color(red: 0.42, green: 0.22, blue: 0.96).opacity(0.12)
-    static let neonGreen = Color(red: 0.22, green: 1.0, blue: 0.08)     // #39FF14
-    static let neonRed = Color(red: 1.0, green: 0.19, blue: 0.19)       // #FF3131
-    static let neonYellow = Color(red: 1.0, green: 0.94, blue: 0.12)    // #FFF01F
-    static let card = Color(.secondarySystemBackground)
+    static let purple = Color(red: 0.486, green: 0.361, blue: 1.0)      // #7C5CFF, the action color
+    static let purpleSoft = Color(red: 0.486, green: 0.361, blue: 1.0).opacity(0.16)
+    static let neonGreen = Color(red: 0.239, green: 0.863, blue: 0.518) // #3DDC84 Accept
+    static let neonRed = Color(red: 1.0, green: 0.42, blue: 0.357)      // #FF6B5B Decline
+    static let neonYellow = Color(red: 1.0, green: 0.788, blue: 0.235)  // #FFC93C Check
+    static let ground = Color(red: 0.043, green: 0.043, blue: 0.063)    // #0B0B10
+    static let card = Color(red: 0.082, green: 0.082, blue: 0.114)      // #15151D
+    static let raised = Color(red: 0.133, green: 0.133, blue: 0.176)    // #22222D
+    static let track = Color(red: 0.165, green: 0.165, blue: 0.212)     // #2A2A36
+    static let secondaryText = Color(red: 0.639, green: 0.631, blue: 0.702) // #A3A1B3
 
     static func color(_ verdict: Verdict) -> Color {
         switch verdict {

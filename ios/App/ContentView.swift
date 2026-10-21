@@ -24,7 +24,7 @@ struct ContentView: View {
             }
         }
         .tint(Theme.purple)
-        .preferredColorScheme(PreviewData.forcedScheme)
+        .preferredColorScheme(PreviewData.forcedScheme ?? .dark)
         .environmentObject(model)
         .environmentObject(signals)
         .environmentObject(menu)
@@ -57,32 +57,38 @@ struct DashTab: View {
 
     var body: some View {
         NavigationStack {
+            // Redesign (user, Oct 21): one state at a time — on an order, an offer in, or waiting.
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 16) {
                     SetupHealthCard(issues: model.setupIssues)
-                    if let trip = trips.active {
-                        TripCard(trip: trip)
-                    }
                     TimelineView(.periodic(from: .now, by: 5)) { context in
-                        if let offer = model.currentOffer {
-                            if PreviewData.isActive || context.date.timeIntervalSince(offer.seenAt) < AppModel.offerHeroSeconds {
-                                OfferHero(offer: offer) { withAnimation { model.dismiss(offer) } }
-                            } else {
-                                LastOfferRow(offer: offer) { withAnimation { model.dismiss(offer) } }
+                        VStack(alignment: .leading, spacing: 16) {
+                            // A new offer shows even on an order (stacking); the trip stays below it.
+                            if let offer = model.currentOffer {
+                                if PreviewData.isActive || context.date.timeIntervalSince(offer.seenAt) < AppModel.offerHeroSeconds {
+                                    HomeOfferCard(offer: offer) { withAnimation { model.dismiss(offer) } }
+                                } else {
+                                    LastOfferRow(offer: offer) { withAnimation { model.dismiss(offer) } }
+                                }
                             }
-                        } else if trips.active == nil {
-                            Text(model.isReading ? "Waiting for offers" : "Not reading offers")
-                                .font(.title3.weight(.semibold)).foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 24)
+                            if let trip = trips.active {
+                                HomeOnOrder(trip: trip)
+                            } else if model.currentOffer != nil {
+                                HomeShiftStrip()
+                            } else {
+                                HomeWaiting()
+                            }
                         }
                     }
-                    ShiftSummaryCard()
-                    GoalsCard()
                 }
                 .padding(.horizontal, 20).padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .background(Theme.ground.ignoresSafeArea())
             .safeAreaInset(edge: .bottom) {
-                DashBottomBar(trip: trips.active, reading: model.screenCaptured, destination: model.destination.name, rules: model.rules)
+                if trips.active == nil && (shifts.current == nil || !model.screenCaptured) {
+                    DashBottomBar(trip: nil, reading: model.screenCaptured, destination: model.destination.name, rules: model.rules)
+                }
             }
             .navigationTitle("__APP_NAME__")
             .navigationBarTitleDisplayMode(.inline)
@@ -132,13 +138,6 @@ struct DashBottomBar: View {
                 .buttonStyle(.plain)
                 .accessibilityHint("Records this step of the order")
             } else {
-                NavigationLink { ReturnDestinationView() } label: {
-                    HStack(spacing: 4) {
-                        Text("\(rules.perMileText)/mi incl. return to \(destination) · \(rules.hourlyText)")
-                        Image(systemName: "chevron.right").font(.caption2.weight(.semibold))
-                    }
-                    .font(.footnote).foregroundStyle(.secondary)
-                }
                 if shifts.current == nil {
                     // Starting a shift lives on Home (user, Oct 16); it also starts screen reading if that's off.
                     Button {
@@ -157,7 +156,7 @@ struct DashBottomBar: View {
             }
         }
         .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 8)
-        .background(Color(.systemBackground).shadow(.drop(color: .black.opacity(0.08), radius: 6, y: -2)))
+        .background(Theme.ground)
     }
 }
 
