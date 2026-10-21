@@ -92,13 +92,21 @@ struct GoalsCard: View {
         }
         .goalEditor(isPresented: $editing)
         // A goal just reached.
-        .sensoryFeedback(.success, trigger: (status?.daily?.reached == true ? 1 : 0) + (status?.weekly?.reached == true ? 1 : 0)) { old, new in new > old }
+        .sensoryFeedback(.success, trigger: reachedCount) { old, new in new > old }
         .onAppear(perform: refresh)
         .onChange(of: goals.dailyCents) { refresh() }
         .onChange(of: goals.weeklyCents) { refresh() }
         .onChange(of: trips.history.count) { refresh() }
         .onChange(of: entries.entries.count) { refresh() }
         .onReceive(shifts.$metrics) { _ in refresh() }
+    }
+
+    /// How many goals are reached (for the success haptic when one is).
+    private var reachedCount: Int {
+        var n = 0
+        if status?.daily?.reached == true { n += 1 }
+        if status?.weekly?.reached == true { n += 1 }
+        return n
     }
 
     private func refresh() {
