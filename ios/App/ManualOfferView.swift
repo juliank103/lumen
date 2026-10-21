@@ -192,8 +192,7 @@ struct ManualOfferForm: View {
                     DatePicker("Delivered at", selection: $deliveredAt, in: offeredAt...max(offeredAt, Date()))
                 }
             } footer: {
-                Text(outcome == .ongoing ? "Starts the order, like tapping Accept." : outcome == .completed
-                     ? "Goes into your history and earnings with these times." : "Kept in your offers only.")
+                Text(outcome == .ongoing ? "Starts the order." : outcome == .completed ? "Added to your earnings." : "Offers list only.")
             }
             if let offer = draft, offer.outboundMilliMiles != nil {
                 Section("Verdict") {
@@ -305,8 +304,7 @@ struct EntryForm: View {
                 DatePicker("When", selection: $at, in: ...Date())
                 TextField("Note (optional)", text: $note)
             } footer: {
-                Text(kind == .expense ? "Subtracted from your earnings as net on the Earnings page."
-                     : "Added to your earnings for that day (and that app's share). For a tip on one order, edit the order's pay instead.")
+                Text(kind == .expense ? "Counts against net." : "Added to that day's earnings.")
             }
         }
         .navigationTitle(kind == .expense ? "Add an expense" : "Add earnings")

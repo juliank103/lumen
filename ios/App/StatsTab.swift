@@ -54,7 +54,7 @@ struct ShiftOverview: View {
             } header: {
                 HStack {
                     Text("Deliveries")
-                    InfoNote(title: "Shift clock", text: "Each delivery shows the shift time when it was delivered, what it paid for the time since the previous one (waiting included), and the shift's hourly right after it: earnings so far ÷ shift time.")
+                    InfoNote(title: "Shift clock", text: "Hourly = earnings so far ÷ shift time.")
                 }
             }
         }

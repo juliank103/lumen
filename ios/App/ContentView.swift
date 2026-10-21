@@ -53,6 +53,7 @@ struct ContentView: View {
 struct DashTab: View {
     @EnvironmentObject private var model: AppModel
     @ObservedObject private var trips = TripStore.shared
+    @ObservedObject private var shifts = ShiftStore.shared
 
     var body: some View {
         NavigationStack {
@@ -70,7 +71,7 @@ struct DashTab: View {
                                 LastOfferRow(offer: offer) { withAnimation { model.dismiss(offer) } }
                             }
                         } else if trips.active == nil {
-                            Text(model.isReading ? "Waiting for the next offer…" : "Start reading to get a verdict on every offer.")
+                            Text(model.isReading ? "Waiting for offers" : "Not reading offers")
                                 .font(.title3.weight(.semibold)).foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 24)
                         }
@@ -85,6 +86,18 @@ struct DashTab: View {
             }
             .navigationTitle("__APP_NAME__")
             .navigationBarTitleDisplayMode(.inline)
+            // Haptics (user, Oct 21): a new offer by its verdict, each trip step, shift start/end, a dismissal.
+            .sensoryFeedback(trigger: model.currentOffer?.id) { _, new in
+                guard new != nil, let offer = model.currentOffer else { return nil }
+                switch Verdict(notice: offer.notice) {
+                case .accept: return .success
+                case .decline: return .warning
+                case .maybe: return .impact(weight: .medium)
+                }
+            }
+            .sensoryFeedback(.impact(weight: .medium), trigger: trips.active?.steps.count)
+            .sensoryFeedback(.impact(weight: .heavy), trigger: shifts.current?.id)
+            .sensoryFeedback(.impact(weight: .light), trigger: model.dismissed.count)
             .toolbar {
                 // Like DoorDash's centered "This week" pill: the reading status, which also starts/stops reading.
                 ToolbarItem(placement: .principal) {
@@ -206,14 +219,14 @@ struct DashHelp: View {
             List {
                 Section("Start reading offers") {
                     Text("Tap Start reading offers, then Start Broadcast.")
-                    Text("Or: Control Center → press and hold Screen Recording → __APP_NAME__ Reader → Start Broadcast.")
+                    Text("Or: Control Center → hold Screen Recording → __APP_NAME__ Reader.")
                 }
                 Section("Offer pop-ups") {
-                    Text("Settings › Notifications › Screen Sharing › Allow Notifications must be on, or offers only land in Notification Center.")
+                    Text("Turn on Settings › Notifications › Screen Sharing.")
                 }
                 Section("Orders") {
-                    Text("Tap I accepted this on an offer (or ✓ I accepted on its notification). Then tick each store and drop-off with the big button or from the order notification. Undo fixes a mistaken tap.")
-                    Text("Swipe an offer sideways or tap ✕ to dismiss it.")
+                    Text("Tap I accepted, then the big button at each stop. Undo fixes mistakes.")
+                    Text("Swipe or tap ✕ to dismiss an offer.")
                 }
             }
             .navigationTitle("Help")

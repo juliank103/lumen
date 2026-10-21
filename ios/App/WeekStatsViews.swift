@@ -111,6 +111,9 @@ struct StatsTab: View {
                     .presentationDetents([.medium])
             }
             .goalEditor(isPresented: $editingGoal)
+            .sensoryFeedback(.selection, trigger: week.offset)
+            .sensoryFeedback(.selection, trigger: chartByApp)
+            .sensoryFeedback(.selection, trigger: metric)
             .confirmationDialog("End this shift?", isPresented: $confirmEnd) {
                 Button("End shift", role: .destructive) { shifts.end() }
             } message: {

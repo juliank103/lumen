@@ -84,15 +84,13 @@ struct GridwiseImportView: View {
                         }
                         .disabled(allNew.isEmpty)
                     }
-                } footer: {
-                    Text("Earnings from Gridwise are daily totals per app. They appear under Earnings by day and in the By app split. Expenses go to Net and the expense tile. Mileage adds hours and miles for those days, which gives imported earnings a $/hr and $/mi.")
                 }
             }
             if importedCount > 0 {
                 Section {
                     Button("Remove everything imported from Gridwise", role: .destructive) { confirmRemove = true }
                 } footer: {
-                    Text("\(importedCount) imported entries are on this phone. Entries you added yourself are not touched.")
+                    Text("\(importedCount) imported entries.")
                 }
             }
         }

@@ -18,8 +18,6 @@ struct RestaurantsView: View {
                 ForEach(shown) { r in
                     NavigationLink { RestaurantDetail(restaurantId: r.id) } label: { RestaurantRow(restaurant: r, stat: store.stats[r.id]) }
                 }
-            } footer: {
-                Text("Built from offer cards and the stores you tick as arrived. If one place shows up under two names, open it and tap Merge.")
             }
         }
         .searchable(text: $search, prompt: "Search restaurants")
@@ -141,7 +139,7 @@ struct MergePicker: View {
                             .frame(height: 220)
                             .listRowInsets(EdgeInsets())
                     } footer: {
-                        Text("Purple: this restaurant. Numbers: the likely matches below. Same spot means the same place; far apart means different branches.")
+                        Text("Purple: this one. Numbers: likely matches.")
                     }
                 }
                 Section("Likely the same place") {

@@ -34,10 +34,10 @@ struct AccountTab: View {
                 } header: {
                     HStack {
                         Text("Your rules")
-                        InfoNote(title: "Your rules", text: "Used for every new offer. Miles include the drive back to your return location; the drive back you were already making isn't charged to the next offer.")
+                        InfoNote(title: "Your rules", text: "Miles include the drive back.")
                     }
                 } footer: {
-                    if !model.rulesShared { Text("This install has no shared App Group, so the offer reader keeps $1/mi and $25/hr.") }
+                    if !model.rulesShared { Text("Reader uses $1/mi and $25/hr on this install.") }
                 }
                 Section {
                     Toggle("Tick order steps automatically", isOn: $autoSteps)
@@ -46,7 +46,7 @@ struct AccountTab: View {
                 } header: {
                     HStack {
                         Text("Automatic")
-                        InfoNote(title: "Automatic order steps", text: "Reads DoorDash, Uber Eats, and Grubhub screens (accepted, at the store, heading to the customer, at the drop-off, delivered) and uses your position during a shift. Undo fixes a wrong step.")
+                        InfoNote(title: "Automatic order steps", text: "Uses the apps' screens and your location. Undo fixes a wrong step.")
                     }
                 }
                 Section("Goals and costs") {
@@ -72,7 +72,7 @@ struct AccountTab: View {
                 } header: {
                     Text("Permissions")
                 } footer: {
-                    Text("Offers pop up only if Settings › Notifications › Screen Sharing › Allow Notifications is on. Location \"Always\" lets __APP_NAME__ add up your miles during a shift.")
+                    Text("Needs Screen Sharing notifications on and Location set to Always.")
                 }
                 // Polish pass (Oct 16): one job per screen — the store list and diagnostics live here, not in the menu.
                 Section("More") {
@@ -87,7 +87,7 @@ struct AccountTab: View {
                 } header: {
                     HStack {
                         Text("Your data")
-                        InfoNote(title: "Backups", text: "Before installing a new build, export and save the files to iCloud Drive. If your history is ever missing, restore it from __APP_SLUG__-history.json.")
+                        InfoNote(title: "Backups", text: "Export before installing a new build.")
                     }
                 }
             }
@@ -187,7 +187,7 @@ struct DiagnosticsView: View {
             } header: {
                 Text("Demo data")
             } footer: {
-                Text("Four weeks of invented shifts, offers, and trips to explore Stats and Offers. Today is left empty, demo items are never exported, and removing them leaves your real data alone (the restaurant list is rebuilt).")
+                Text("Invented data to explore. Never exported.")
             }
             Section("About") {
                 row("Build", (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String) ?? "?")

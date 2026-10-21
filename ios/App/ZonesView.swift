@@ -69,6 +69,8 @@ struct ZonesView: View {
             .navigationBarTitleDisplayMode(.inline)
             .menuButton()
         }
+        .sensoryFeedback(.selection, trigger: part)
+        .sensoryFeedback(.selection, trigger: days)
         .onAppear { recompute(locate: true) }
         .onChange(of: part) { recompute(locate: true) }
         .onChange(of: days) { recompute(locate: false) }

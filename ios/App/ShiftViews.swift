@@ -207,7 +207,7 @@ struct ShiftEditor: View {
                         DatePicker("Ended", selection: $end, in: start...Date())
                     }
                 } footer: {
-                    Text(isRunning && !endRunning ? "The shift is still running; it ends by itself or with End shift."
+                    Text(isRunning && !endRunning ? "Still running."
                          : "Online time: " + ShiftFormat.duration(Int(max(0, end.timeIntervalSince(start)))) + ".")
                 }
                 if !isRunning {
@@ -223,7 +223,7 @@ struct ShiftEditor: View {
                             TextField("0", text: $otherMilesText).keyboardType(.decimalPad).multilineTextAlignment(.trailing).frame(maxWidth: 100)
                         }
                     } footer: {
-                        Text("Other miles: driving back and repositioning (deadhead)." + (shift == nil ? "" : " Leave as is to keep the tracked miles."))
+                        Text("Drive-back and repositioning miles.")
                     }
                 }
                 if shift != nil && !isRunning {

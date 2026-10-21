@@ -145,7 +145,7 @@ struct OfferDetail: View {
                     Text(summaryLine).font(.subheadline).foregroundStyle(.secondary)
                     VerdictChip(notice: offer.notice, large: true)
                     if TripStore.shared.trip(for: offer.offerId ?? offer.id) != nil {
-                        Text("The verdict when the offer came in. What it really earned is below.")
+                        Text("Verdict when it came in.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     AcceptButton(offer: offer)
@@ -173,7 +173,7 @@ struct OfferDetail: View {
                 dismiss()
             }
         } message: {
-            Text("The offer, and its order if you took it, are removed from your history and stats.")
+            Text("Removes it and its order from your stats.")
         }
         .navigationTitle(Theme.appName(offer.platform))
         .navigationBarTitleDisplayMode(.inline)

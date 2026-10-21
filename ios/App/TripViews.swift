@@ -277,7 +277,7 @@ struct TripResultSection: View {
                 } header: {
                     HStack {
                         Text("Predicted vs actual")
-                        InfoNote(title: "Predicted vs actual", text: "Real $/hr uses the real time to deliver plus the predicted drive back, so it compares with the verdict's $/hr.")
+                        InfoNote(title: "Predicted vs actual", text: "Real time plus the predicted drive back.")
                     }
                 }
             }

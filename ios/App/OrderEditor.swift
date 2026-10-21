@@ -80,8 +80,7 @@ struct OrderEditor: View {
                 } header: {
                     Text(stores.count == 1 ? "Pickup" : "Pickups (\(stores.count))")
                 } footer: {
-                    Text(stores.count > 1 ? "Several orders from one store are one pickup. Tap ↑ to move a store earlier, so the list matches the order you pick them up."
-                         : "Several orders from one store are one pickup.")
+                    if stores.count > 1 { Text("↑ moves a store earlier.") }
                 }
                 Section {
                     Stepper("Drop-offs: \(dropoffs)", value: $dropoffs, in: minimumDropoffs...8)
@@ -116,6 +115,7 @@ struct OrderEditor: View {
                     .disabled(cents == nil || stores.isEmpty)
                 }
             }
+            .sensoryFeedback(.selection, trigger: stores.map(\.id))
             .onAppear(perform: load)
         }
     }

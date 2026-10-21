@@ -91,6 +91,8 @@ struct GoalsCard: View {
             }
         }
         .goalEditor(isPresented: $editing)
+        // A goal just reached.
+        .sensoryFeedback(.success, trigger: (status?.daily?.reached == true ? 1 : 0) + (status?.weekly?.reached == true ? 1 : 0)) { old, new in new > old }
         .onAppear(perform: refresh)
         .onChange(of: goals.dailyCents) { refresh() }
         .onChange(of: goals.weeklyCents) { refresh() }
@@ -154,7 +156,7 @@ struct GoalsSheet: View {
                     field("Per day", text: $daily, hint: "e.g. 200")
                     field("Per week", text: $weekly, hint: "e.g. 1000")
                 } footer: {
-                    Text("Leave a goal empty for none. A shift goal shows on the running shift, the daily goal runs midnight to midnight, and the weekly goal Monday to Sunday. They count orders, tips and bonuses, and imported Gridwise days.")
+                    Text("Empty means no goal. Weeks run Mon–Sun.")
                 }
             }
             .navigationTitle("Goals")

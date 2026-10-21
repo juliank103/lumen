@@ -20,9 +20,7 @@ struct ReturnDestinationView: View {
             } header: {
                 Text("Return to")
             } footer: {
-                Text(model.destinationShared
-                     ? "Applies from the next offer; no need to restart reading. The drive back already planned is measured to this place too."
-                     : "This install has no shared App Group, so the offer reader can't see this choice and keeps using __HOME_NAME__.")
+                Text(model.destinationShared ? "Applies from the next offer." : "The reader can't see this choice on this install.")
             }
             Section("Add a place") {
                 TextField("Search address or place", text: $search.query)
