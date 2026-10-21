@@ -7,6 +7,7 @@ struct AccountTab: View {
     @ObservedObject private var shifts = ShiftStore.shared
     @AppStorage("vehicleCostCentsPerMile") private var costPerMile = 0
     @AppStorage("mileageDeductionCents") private var deductionCents = 67
+    @AppStorage("keepReadingData") private var keepReadingData = true
     @State private var editingDeduction = false
     @State private var deductionText = ""
     @AppStorage(AutoSteps.enabledKey) private var autoSteps = true
@@ -82,6 +83,9 @@ struct AccountTab: View {
                 Section {
                     ExportButton()
                     RestoreButton()
+                    // Reading data (user, Oct 21): card text and what the map reader saw, to keep improving the reader.
+                    Toggle("Save reading data", isOn: $keepReadingData)
+                        .onChange(of: keepReadingData) { _, on in if !on { model.trimReadingData(force: true) } }
                     NavigationLink { GridwiseImportView() } label: { Label("Import from Gridwise", systemImage: "square.and.arrow.down.on.square") }
                     NavigationLink("Privacy") { PrivacyView() }
                 } header: {

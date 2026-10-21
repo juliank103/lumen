@@ -249,6 +249,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
         var delivered = false, finalized = false
         var trace: [String] = [] // These three are touched only on `processing`.
         var mapCurrent: (Double, Double)?
+        var mapJSON: String? // What the map reader saw (pins, icons, dot, labels), for the collected reading data.
         var timings: [String: Int] = ["ocrDone": ms(ocrDoneAt), "firstNotification": ms(firstNotifiedAt)]
         let router = self.router
         // Last step: the "already driving back to __HOME_NAME__" credit (3 s at most), then storage and any UPDATE.
@@ -275,14 +276,12 @@ final class SampleHandler: RPBroadcastSampleHandler {
                             extra["waitLat"] = (fix.lat * 1000).rounded() / 1000
                             extra["waitLon"] = (fix.lon * 1000).rounded() / 1000
                         }
+                        // Reading data for every offer (user, Oct 21: "We can do 1"): the card's text and what the map reader
+                        // saw on screen — never coordinates, street names, or the drop-off places worked out from them.
+                        extra["cardLines"] = Self.cardText(cardLines, below: summary.mapBottom)
+                        if let snapshot = mapJSON.flatMap(Self.mapSnapshot) { extra["mapSnapshot"] = snapshot }
                         guard var finalized = try? reader.finalize(summary, route: route, credit: credit, note: note,
                                                                    debug: trace.joined(separator: " · "), at: seenAt, extra: extra) else { return }
-                        // Unsure verdict: keep the card's text with the offer, so the export shows what the reader saw.
-                        if Verdict(notice: finalized.offer.notice) == .maybe,
-                           let kept = try? reader.finalize(summary, route: route, credit: credit, note: note, debug: trace.joined(separator: " · "),
-                                                           at: seenAt, extra: extra.merging(["cardLines": Self.cardText(cardLines, below: summary.mapBottom) as Any]) { $1 }) {
-                            finalized = kept
-                        }
                         let update = reader.shouldUpdate(preliminaryWord: preliminary.word, refinedNotice: finalized.offer.notice ?? "")
                         if update, let refined = try? reader.finalize(summary, route: route, credit: credit, note: note,
                                                                       debug: trace.joined(separator: " · "), at: seenAt,
@@ -314,6 +313,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
             trace.append("map image unavailable")
             return fallback("map could not be read")
         }
+        mapJSON = map.json
         trace.append("map labels read: " + (map.labels.joined(separator: "/").isEmpty ? "none" : map.labels.joined(separator: "/")))
         router.mapPlaces(labels: map.labels, pickup: summary.pickupQuery, pickupName: summary.pickupName) { places, pickupPlace in
             self.processing.async {
@@ -437,6 +437,31 @@ final class SampleHandler: RPBroadcastSampleHandler {
     static func cardText(_ lines: [OfferReader.Line], below top: Double) -> [String] {
         lines.filter { $0.y >= top && !($0.text.contains("&") && $0.text.contains(",")) }.prefix(40)
             .map { String(format: "%.4f|%.4f|%.4f|%.4f|", $0.y, $0.x, $0.w, $0.h) + $0.text }
+    }
+
+    /// The map reader's view of the screen, for the collected reading data: each pin's screen position, size, and kind
+    /// (store / customer, with the icon's shape), the location dot, and town-name labels. Street-name labels are left
+    /// out, and nothing here is a map coordinate.
+    static func mapSnapshot(_ json: String) -> String? {
+        guard let object = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any],
+              let found = object["found"] as? [String: Any] else { return nil }
+        let r3 = { (v: Any?) -> Double? in (v as? Double).map { ($0 * 1000).rounded() / 1000 } }
+        let pins: [[String: Any]] = (found["pins"] as? [[String: Any]] ?? []).map { pin in
+            var out: [String: Any] = [:]
+            for key in ["centerX", "centerY", "radius", "iconRatio"] { if let v = r3(pin[key]) { out[key] = v } }
+            if let kind = pin["kind"] as? String { out["kind"] = kind }
+            return out
+        }
+        let street = #"\b(St|Rd|Ave|Dr|Blvd|Ln|Ct|Cir|Way|Pkwy|Hwy|Pl|Ter|Trl)\b\.?|\d"#
+        let labels: [[String: Any]] = (object["labels"] as? [[String: Any]] ?? []).compactMap { label in
+            guard let text = label["text"] as? String, text.range(of: street, options: .regularExpression) == nil else { return nil }
+            return ["text": text, "x": r3(label["x"]) ?? 0, "y": r3(label["y"]) ?? 0]
+        }
+        var snapshot: [String: Any] = ["pins": pins, "labels": labels, "style": found["styleName"] as? String ?? ""]
+        if let dot = found["currentLocation"] as? [String: Any] { snapshot["dot"] = ["x": r3(dot["x"]) ?? 0, "y": r3(dot["y"]) ?? 0] }
+        if let pickups = found["pickupPins"] as? [[String: Any]], !pickups.isEmpty { snapshot["pickupPins"] = pickups.count }
+        guard let data = try? JSONSerialization.data(withJSONObject: snapshot) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     /// A notification banner across the top: its time stamp ("now", "2m ago") or an app's name in the top strip.

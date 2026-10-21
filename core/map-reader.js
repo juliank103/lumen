@@ -58,7 +58,7 @@
     const asPins = discs => discs.map(d => {
       const center = toScreen(d.x, d.y), anchor = toScreen(d.x, Math.min(H - 1, d.y + style.anchorBelow * d.r));
       const pin = { x: anchor.x, y: anchor.y, centerX: center.x, centerY: center.y, radius: d.r / W };
-      if (platform === 'doordash') pin.kind = iconKind(px, W, H, d);
+      if (platform === 'doordash') { pin.kind = iconKind(px, W, H, d); if (d.iconRatio !== undefined) pin.iconRatio = d.iconRatio; }
       return pin;
     });
     const pins = asPins(detectDiscs(mask, W, H));
@@ -84,6 +84,7 @@
     }
     if (n < 12 || d.r < 9) return null; // Too small to see (a coarse map image).
     const ratio = (maxX - minX + 1) / (maxY - minY + 1);
+    d.iconRatio = Math.round(ratio * 100) / 100; // Kept with the pin for the collected reading data.
     return ratio >= 0.92 ? 'store' : ratio <= 0.85 ? 'customer' : null;
   }
 

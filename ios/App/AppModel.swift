@@ -112,8 +112,10 @@ final class AppModel: ObservableObject {
         // Keep every offer in the app's own archive (the shared list holds 100; notifications get cleared).
         var known = Set(archive.map(\.id)), added: [LiveOffer] = []
         for offer in list where !known.contains(offer.id) && !deletedOffers.contains(offer.offerId ?? offer.id) {
-            archive.append(offer); known.insert(offer.id); added.append(offer)
+            let kept = LiveOffer.keepsReadingData ? offer : offer.withoutReadingData()
+            archive.append(kept); known.insert(offer.id); added.append(kept)
         }
+        trimReadingData()
         if !added.isEmpty {
             archive.sort { $0.seenAt < $1.seenAt }
             OfferArchive.append(added)
@@ -170,6 +172,19 @@ final class AppModel: ObservableObject {
         removeOffers { ($0.offerId ?? $0.id) == offerId }
         TripStore.shared.deleteOrder(offerId)
         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [offerId])
+    }
+
+    private var readingDataTrimmedAt = Date.distantPast
+
+    /// Reading data is kept 30 days (a few KB an offer), and dropped at once when turned off; checked hourly.
+    func trimReadingData(force: Bool = false) {
+        guard force || Date().timeIntervalSince(readingDataTrimmedAt) > 3600 else { return }
+        readingDataTrimmedAt = Date()
+        let cutoff = Date().addingTimeInterval(-30 * 86_400), keep = LiveOffer.keepsReadingData
+        guard archive.contains(where: { ($0.cardLines != nil || $0.mapSnapshot != nil) && (!keep || $0.seenAt < cutoff) }) else { return }
+        archive = archive.map { (!keep || $0.seenAt < cutoff) ? $0.withoutReadingData() : $0 }
+        OfferArchive.rewrite(archive)
+        offers = archive
     }
 
     func removeOffers(where test: (LiveOffer) -> Bool) {

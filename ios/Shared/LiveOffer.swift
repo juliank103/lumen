@@ -47,12 +47,33 @@ struct LiveOffer: Codable, Identifiable {
     /// the Zones heat map. Nil on older offers or when the reader had no position.
     let waitLat: Double?
     let waitLon: Double?
-    /// When the verdict was unsure ("Accept if return", "Check"): the card's text lines as "y|x|w|h|text" (no map, no
-    /// cross streets), saved so the export carries what the reader saw (user, Oct 21: method 7).
+    /// Reading data (user, Oct 21): the card's text lines as "y|x|w|h|text" (no map, no cross streets), and what the
+    /// map reader saw on screen (pins, icons, dot, town labels; no coordinates). Kept 30 days; off in Account.
     let cardLines: [String]?
+    let mapSnapshot: String?
     let headline: String
     let detail: String
     let fingerprint: String
+}
+
+extension LiveOffer {
+    /// Whether to keep the reading data (card text, map snapshot) with offers. On unless turned off in Account.
+    static var keepsReadingData: Bool { UserDefaults.standard.object(forKey: "keepReadingData") as? Bool ?? true }
+
+    /// The same offer without its reading data (turned off, or older than 30 days).
+    func withoutReadingData() -> LiveOffer {
+        guard cardLines != nil || mapSnapshot != nil else { return self }
+        let encoder = JSONEncoder(), decoder = JSONDecoder()
+        encoder.dateEncodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .iso8601
+        guard let data = try? encoder.encode(self),
+              var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return self }
+        object["cardLines"] = nil
+        object["mapSnapshot"] = nil
+        guard let stripped = try? JSONSerialization.data(withJSONObject: object),
+              let offer = try? decoder.decode(LiveOffer.self, from: stripped) else { return self }
+        return offer
+    }
 }
 
 enum LiveOfferStorage {
