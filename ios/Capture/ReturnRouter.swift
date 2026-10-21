@@ -169,6 +169,39 @@ final class ReturnRouter: NSObject, CLLocationManagerDelegate {
         }
     }
 
+    /// Road meters store -> drop-offs (nearest-first) and, when the position is known, here -> store; for checking the
+    /// map-read drop-offs against the app's own trip miles (user, Oct 21).
+    func tripDistance(mapCurrent: (Double, Double)?, pickup: (Double, Double)?, dropoffs: [(latitude: Double, longitude: Double)],
+                      completion: @escaping (_ toPickup: CLLocationDistance?, _ delivery: CLLocationDistance?) -> Void) {
+        DispatchQueue.main.async {
+            guard let pickup, !dropoffs.isEmpty else { return completion(nil, nil) }
+            let item = { (lat: Double, lon: Double) in MKMapItem(placemark: MKPlacemark(coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon))) }
+            var stops: [(Double, Double)] = [pickup]
+            var remaining = dropoffs.map { ($0.latitude, $0.longitude) }
+            while !remaining.isEmpty {
+                let last = stops[stops.count - 1]
+                let next = remaining.enumerated().min { hypot($0.element.0 - last.0, $0.element.1 - last.1) < hypot($1.element.0 - last.0, $1.element.1 - last.1) }!
+                stops.append(next.element)
+                remaining.remove(at: next.offset)
+            }
+            var delivery: CLLocationDistance = 0
+            func leg(_ index: Int) {
+                guard index + 1 < stops.count else {
+                    guard let here = self.currentPosition(mapCurrent: mapCurrent) else { return completion(nil, delivery) }
+                    return self.route(from: item(here.coordinate.latitude, here.coordinate.longitude), to: item(pickup.0, pickup.1)) { toPickup in
+                        completion(toPickup?.meters, delivery)
+                    }
+                }
+                self.route(from: item(stops[index].0, stops[index].1), to: item(stops[index + 1].0, stops[index + 1].1)) { result in
+                    guard let result else { return completion(nil, nil) }
+                    delivery += result.meters
+                    leg(index + 1)
+                }
+            }
+            leg(0)
+        }
+    }
+
     // MARK: Return from card text and bounds
 
     func estimate(dropoff: String?, pickup: String?, outboundMilliMiles: Int?, completion: @escaping (Route?, String?) -> Void) {

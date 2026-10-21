@@ -439,7 +439,7 @@
       payCents: pay.cents, payBasis, outboundMilliMiles, distanceBasis: 'platform_total',
       appMinutes: f.appMinutes, deliverByMinutes: f.deliverByMinutes === undefined ? null : f.deliverByMinutes,
       merchants, merchantKey: merchants.length ? slug(merchants[0]) : null,
-      dropoffArea: f.dropoffArea, orderCount: f.orderCount, stopCount: f.stopCount,
+      dropoffArea: f.dropoffArea, orderCount: f.orderCount, stopCount: f.stopCount, addOn: !!f.addOn,
       includedBoostCents: f.includedBoostCents, exclusive: f.exclusive, orderType, confidence, problems };
     if (outboundMilliMiles === null && options && options.withRouting) {
       // What the phone read on a card whose miles could not be found, for diagnosis. Address-like lines are dropped.
@@ -563,10 +563,12 @@
       needsClock = !shown;
     }
     const v = verdict(r, copilot, settings);
+    const suspect = consistency(r);
     const pay = '$' + (r.payCents / 100).toFixed(2);
     const summary = { platform: r.platform, payCents: r.payCents, outboundMilliMiles: r.outboundMilliMiles, appMinutes: r.appMinutes,
       merchant: r.merchants.join(' + ') || null, dropoffArea: r.dropoffArea, orderCount: r.orderCount, confidence: r.confidence,
       tone: v.tone, maxReturnMilliMiles: v.maxReturnMilliMiles, returnMilliMiles: null, returnKind: null,
+      suspect,
       headline: APP_NAMES[r.platform] + ' ' + pay + (r.outboundMilliMiles === null ? '' : ' · ' + miles1(r.outboundMilliMiles) + ' mi'),
       detail: v.text, notice: null, fingerprint: [r.platform, r.payCents, r.outboundMilliMiles].join('|'), routing: r.routing,
       readerDebug: r.cardText ? 'miles not read; card text: ' + r.cardText : null,
@@ -613,7 +615,35 @@
    * returns there, and that drive was already counted against the previous order, so an offer is charged only the
    * miles and minutes it adds: here→pickup→drop-offs→__HOME_NAME__ minus here→__HOME_NAME__ (user's rule, Oct 14 2026).
    * route.returnMinutes: Apple Maps drive time for the return. Hourly uses the app's time estimate plus that. */
+  /* The card's numbers have to fit together (user, Oct 21: "make the screen reader 100% accurate" — when they don't,
+   * say so rather than give a confident wrong verdict). Returns the reason, or null. */
+  function consistency(r) {
+    const miles = r.outboundMilliMiles === null ? null : r.outboundMilliMiles / 1000;
+    if (miles !== null && r.appMinutes) {
+      const mph = miles / (r.appMinutes / 60);
+      if (miles >= 2 && mph > 50) return "time and miles don't fit (" + Math.round(mph) + ' mph)';
+      if (miles >= 1 && mph < 1.2) return "time and miles don't fit (" + mph.toFixed(1) + ' mph)';
+    }
+    if (miles !== null && miles >= 1 && r.payCents / miles > 1200) return 'pay per mile is implausible';
+    if (r.platform === 'doordash' && r.stopCount && !r.addOn) {
+      const stores = new Set(r.merchants.map(m => m.toLowerCase())).size, drops = r.orderCount || 0;
+      if (stores && drops && r.stopCount < stores + drops - 1) return "stops don't match the stores and drop-offs";
+    }
+    return null;
+  }
+
+  /* The verdict with the return, then "Check · <why>" in place of it when the card's numbers don't fit together. */
   function withReturn(summary, route, copilot, settings) {
+    const out = withReturnCore(summary, route, copilot, settings);
+    if (summary.suspect) {
+      out.notice = 'Check · ' + summary.suspect;
+      out.detail = "The numbers read off the card don't fit together (" + summary.suspect + '): check the offer in the app';
+      out.tone = 'tight';
+    }
+    return out;
+  }
+
+  function withReturnCore(summary, route, copilot, settings) {
     const out = Object.assign({}, summary, { returnNote: route && route.note ? String(route.note) : null,
       returnDebug: [summary.readerDebug, route && route.debug].filter(Boolean).join(' · ').slice(0, 400) || null,
       creditMilliMiles: null, effectiveMilliMiles: null, hourlyCents: null, tripTimeNote: null,

@@ -166,6 +166,7 @@ struct DiagnosticsView: View {
                 }
                 row("Offers today", "\(today.count) · \(count(.accept)) accept · \(count(.decline)) decline · \(count(.maybe)) maybe")
             }
+            if let health = model.readerHealth { ReaderHealthSection(health: health) }
             Section("Notifications") {
                 row("Permission", model.notificationStatus)
                 row("Banners", model.bannerStatus)

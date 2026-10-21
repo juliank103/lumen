@@ -953,14 +953,48 @@
     };
   }
 
+  // MARK: Reader health
+
+  /* How well the reader is doing, per app, from real use (user, Oct 21: method 6, learn from real trips). Over the last
+   * 14 days and the last 2: offers read, how many got a sure verdict (Accept/Decline) vs unsure ("Accept if return",
+   * "Check", "time unknown"), why unsure (the map / return couldn't be worked out, or the card's numbers didn't fit), and
+   * how often the pay of an order you took had to be corrected. `redesign`: unsure readings jumped (≥ 10 recent offers,
+   * unsure share ≥ 35% and at least twice the 14-day share) — the app may have changed its screens. */
+  function readerHealth(input) {
+    const now = valid(ms(input.now)) ? ms(input.now) : Date.now();
+    const day = 86400000;
+    const sure = o => /·\s*(Accept|Decline)$/i.test(String(o.notice || '')) && !/time unknown/i.test(String(o.notice || ''));
+    const check = o => /^Check\b/.test(String(o.notice || ''));
+    const stats = list => {
+      const unsure = list.filter(o => !sure(o));
+      return { offers: list.length, sure: list.length - unsure.length, unsure: unsure.length,
+        unsureMap: unsure.filter(o => !check(o) && !['map', 'dropoff', 'dropoff_town'].includes(o.returnKind)).length,
+        unsureNumbers: unsure.filter(check).length,
+        unsureShare: list.length ? Math.round(unsure.length / list.length * 100) / 100 : null };
+    };
+    const orders = ordersOf(input.trips).filter(o => o.ended === 'completed' && ms(o.acceptedAt) >= now - 14 * day);
+    const out = {};
+    for (const platform of ['doordash', 'uber_eats', 'grubhub']) {
+      const offers = (input.offers || []).filter(o => o.platform === platform && valid(ms(o.seenAt)));
+      const recent = stats(offers.filter(o => ms(o.seenAt) >= now - 2 * day));
+      const fortnight = stats(offers.filter(o => ms(o.seenAt) >= now - 14 * day));
+      const taken = orders.filter(o => o.platform === platform);
+      const payFixed = taken.filter(o => Number.isSafeInteger(o.offerPayCents) && o.offerPayCents !== o.payCents).length;
+      const redesign = recent.offers >= 10 && recent.unsureShare >= 0.35 && fortnight.unsureShare !== null &&
+        recent.unsureShare >= 2 * fortnight.unsureShare;
+      out[platform] = { recent, fortnight, orders: taken.length, payFixed, redesign };
+    }
+    return out;
+  }
+
   const json = f => (...args) => JSON.stringify(f(...args.map(a => (typeof a === 'string' ? JSON.parse(a) : a))));
   const api = { METERS_PER_MILE, SAME_PLACE_MILES, normalizeName, similarity, distanceMiles, emptyDb, matchRestaurant, updateRestaurants,
     mergeRestaurants, renameRestaurant, mergeSuggestions, storeVisits, restaurantStats, mealPeriod, shiftMetrics, toCSV, exportTables,
-    rangeMetrics, weekStats, dayPart, dominantPart, DAY_PARTS, zoneHeat, offerWorth, parseGridwise, parseCSV, goalStatus, goals,
+    rangeMetrics, weekStats, dayPart, dominantPart, DAY_PARTS, zoneHeat, offerWorth, parseGridwise, parseCSV, goalStatus, goals, readerHealth,
     // JSON bridges for the iPhone (every argument is JSON text).
     updateRestaurantsJSON: json(updateRestaurants), mergeRestaurantsJSON: json(mergeRestaurants), renameRestaurantJSON: json(renameRestaurant),
     mergeSuggestionsJSON: json(mergeSuggestions), restaurantStatsJSON: json(restaurantStats), shiftMetricsJSON: json(shiftMetrics),
-    exportTablesJSON: json(exportTables), weekStatsJSON: json(weekStats), zoneHeatJSON: json(zoneHeat), parseGridwiseJSON: json(parseGridwise), goalsJSON: json(goals) };
+    exportTablesJSON: json(exportTables), weekStatsJSON: json(weekStats), zoneHeatJSON: json(zoneHeat), parseGridwiseJSON: json(parseGridwise), goalsJSON: json(goals), readerHealthJSON: json(readerHealth) };
   root.Shift = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -62,6 +62,10 @@ extension AppModel {
         if LocationAccess.manager.authorizationStatus != .authorizedAlways {
             issues.append(SetupIssue(id: "location", title: "Location isn't set to Always", detail: "Needed for shift miles and automatic arrivals."))
         }
+        for platform in readerHealth?.redesigned ?? [] {
+            issues.append(SetupIssue(id: "redesign-" + platform, title: Theme.appName(platform) + " reading got worse",
+                                     detail: "The app may have changed its screens. Send a few screenshots of its offers."))
+        }
         if ShiftStore.shared.current?.pausedAt == nil, ShiftStore.shared.current != nil, !screenCaptured {
             issues.append(SetupIssue(id: "reading", title: "Offer reading is off", detail: "Tap the status at the top to start it."))
         }

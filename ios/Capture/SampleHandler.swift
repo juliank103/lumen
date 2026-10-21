@@ -31,6 +31,9 @@ final class SampleHandler: RPBroadcastSampleHandler {
     /// App and pay of offers already notified, and when: the same card read again (it slid away and back, or a digit of
     /// its miles was misread) is not another offer (user, Oct 21: "way too many verdicts").
     private var notifiedOffers: [String: Date] = [:]
+    /// The last few readings of the card on screen (8 s): an offer goes out when one reading of app, pay, and miles
+    /// has at least two votes and more than any other (user, Oct 21: vote across reads).
+    private var recentReads: [(fingerprint: String, at: Date)] = []
     private var framesWithoutOffer = 0
     // Order-state reading (screens after accepting): last top-of-screen read, the candidate state, and the last one sent.
     private var lastStatusRead = Date.distantPast
@@ -183,7 +186,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
         let ocrDoneAt = Date()
         guard var summary = try reader.summarize(lines, at: capturedAt) else {
             framesWithoutOffer += 1
-            if framesWithoutOffer >= 2 { notifiedFingerprint = nil; pendingFingerprint = nil; retriedFingerprint = nil }
+            if framesWithoutOffer >= 2 { notifiedFingerprint = nil; pendingFingerprint = nil; retriedFingerprint = nil; recentReads = [] }
             // Looks like an offer but can't be read (e.g. a redesigned card): say so instead of staying silent.
             if reader.status(lines)?.state == "unread_offer" { unreadStreak += 1 } else { unreadStreak = 0 }
             if unreadStreak >= 2, capturedAt.timeIntervalSince(lastUnreadAlert) > 90 {
@@ -213,12 +216,15 @@ final class SampleHandler: RPBroadcastSampleHandler {
         if firstSeen[summary.fingerprint] == nil { firstSeen[summary.fingerprint] = capturedAt }
         if firstSeen.count > 200 { firstSeen = firstSeen.filter { capturedAt.timeIntervalSince($0.value) < 3600 } }
         guard summary.fingerprint != notifiedFingerprint else { return }
-        // Two reads in a row must agree on app, pay, and miles before anything is sent (user, Oct 21: "this app doesn't
-        // work if reading isn't perfect"); a misread digit doesn't repeat on the next frame, so it never goes out.
-        guard summary.fingerprint == pendingFingerprint else {
-            pendingFingerprint = summary.fingerprint
-            return
-        }
+        // Votes across the last reads (user, Oct 21: "this app doesn't work if reading isn't perfect"): a misread digit
+        // rarely repeats, so the reading most frames agree on, at least twice and ahead of any other, goes out.
+        recentReads = recentReads.filter { capturedAt.timeIntervalSince($0.at) < 8 && $0.fingerprint.hasPrefix(summary.platform + "|") }
+        recentReads.append((summary.fingerprint, capturedAt))
+        var tally: [String: Int] = [:]
+        for read in recentReads { tally[read.fingerprint, default: 0] += 1 }
+        let votes = tally[summary.fingerprint] ?? 0
+        let rival = tally.filter { $0.key != summary.fingerprint }.values.max() ?? 0
+        guard votes >= 2, votes > rival else { return }
         notifiedFingerprint = summary.fingerprint
         pendingFingerprint = nil
         let sameOffer = summary.fingerprint.split(separator: "|").prefix(2).joined(separator: "|")
@@ -271,6 +277,12 @@ final class SampleHandler: RPBroadcastSampleHandler {
                         }
                         guard var finalized = try? reader.finalize(summary, route: route, credit: credit, note: note,
                                                                    debug: trace.joined(separator: " · "), at: seenAt, extra: extra) else { return }
+                        // Unsure verdict: keep the card's text with the offer, so the export shows what the reader saw.
+                        if Verdict(notice: finalized.offer.notice) == .maybe,
+                           let kept = try? reader.finalize(summary, route: route, credit: credit, note: note, debug: trace.joined(separator: " · "),
+                                                           at: seenAt, extra: extra.merging(["cardLines": Self.cardText(cardLines, below: summary.mapBottom) as Any]) { $1 }) {
+                            finalized = kept
+                        }
                         let update = reader.shouldUpdate(preliminaryWord: preliminary.word, refinedNotice: finalized.offer.notice ?? "")
                         if update, let refined = try? reader.finalize(summary, route: route, credit: credit, note: note,
                                                                       debug: trace.joined(separator: " · "), at: seenAt,
@@ -312,6 +324,9 @@ final class SampleHandler: RPBroadcastSampleHandler {
                 if let debug = located?.debug { trace.append(debug) }
                 mapCurrent = located?.current
                 guard let located, !located.dropoffs.isEmpty else { return fallback(located?.reason ?? "map could not be read") }
+                // The map's store -> drop-offs must fit the app's own trip miles; if they don't, the pins were misread
+                // and the map is not used (a bound verdict instead of a wrong one).
+                func routeReturn() {
                 router.longestReturn(from: located.dropoffs) { leg in
                     guard let leg else { return fallback("no road route from the map's drop-off") }
                     var route = ReturnRouter.Route(kind: "map", milliMiles: ReturnRouter.milliMiles(leg.meters),
@@ -322,6 +337,19 @@ final class SampleHandler: RPBroadcastSampleHandler {
                     router.tripDrive(mapCurrent: located.current, pickup: located.pickups.first ?? pickupPlace, dropoffs: located.dropoffs) { seconds in
                         route.tripDriveMinutes = seconds.map(ReturnRouter.minutes)
                         deliver(route, nil)
+                    }
+                }
+                }
+                router.tripDistance(mapCurrent: located.current, pickup: located.pickups.first ?? pickupPlace, dropoffs: located.dropoffs) { toPickup, delivery in
+                    self.processing.async {
+                        if let delivery, let outbound = summary.outboundMilliMiles {
+                            let app = Double(outbound) / 1000, routed = delivery / 1609.344, withPickup = routed + (toPickup ?? 0) / 1609.344
+                            trace.append(String(format: "map check: store to drop-offs %.1f mi (+%.1f to the store) vs app %.1f mi", routed, (toPickup ?? 0) / 1609.344, app))
+                            if routed > app * 1.4 + 1 || withPickup * 1.5 + 1 < app {
+                                return fallback(String(format: "the map's drop-offs don't fit the trip's %.1f mi", app))
+                            }
+                        }
+                        routeReturn()
                     }
                 }
             }
@@ -405,6 +433,12 @@ final class SampleHandler: RPBroadcastSampleHandler {
     }
 
     /// The offer map above the card: town-name text and a 200-pixel-wide RGBA copy for pin detection. Transient.
+    /// The card's lines below the map as "y|x|w|h|text", without cross-street lines ("Oak St & Elm St, Town"), at most 40.
+    static func cardText(_ lines: [OfferReader.Line], below top: Double) -> [String] {
+        lines.filter { $0.y >= top && !($0.text.contains("&") && $0.text.contains(",")) }.prefix(40)
+            .map { String(format: "%.4f|%.4f|%.4f|%.4f|", $0.y, $0.x, $0.w, $0.h) + $0.text }
+    }
+
     /// A notification banner across the top: its time stamp ("now", "2m ago") or an app's name in the top strip.
     static func bannerShown(_ lines: [OfferReader.Line]) -> Bool {
         lines.contains { line in
@@ -427,7 +461,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
         }
         let region = frame.cropped(to: CGRect(x: extent.minX, y: extent.minY + extent.height * CGFloat(1 - bottom),
                                               width: extent.width, height: extent.height * CGFloat(bottom - top)))
-        let pixelScale = 200 / extent.width
+        // 400 px: enough to see the icon inside each DoorDash pin (storefront vs person, Oct 21); ~30 ms in the reader.
+        let pixelScale = 400 / extent.width
         let small = region.transformed(by: CGAffineTransform(scaleX: pixelScale, y: pixelScale))
         guard let smallCG = imageContext.createCGImage(small, from: small.extent.integral) else { return nil }
         let width = smallCG.width, height = smallCG.height
@@ -442,8 +477,15 @@ final class SampleHandler: RPBroadcastSampleHandler {
             return true
         }
         guard drawn else { return nil }
-        return try? reader.analyzeMap(pixels: pixels, width: width, height: height, platform: summary.platform,
-                                      top: top, bottom: bottom, aspect: Double(extent.height / extent.width), lines: lines)
+        let aspect = Double(extent.height / extent.width)
+        guard let fast = try? reader.analyzeMap(pixels: pixels, width: width, height: height, platform: summary.platform,
+                                                top: top, bottom: bottom, aspect: aspect, lines: lines) else { return nil }
+        // Fewer than two place names read: read the map's text again with the accurate recognizer (~0.5 s, only then).
+        guard fast.labels.count < 2 else { return fast }
+        let accurate = recognize(frame, top: top, bottom: bottom, level: .accurate, maxWidth: 1400)
+        guard let better = try? reader.analyzeMap(pixels: pixels, width: width, height: height, platform: summary.platform,
+                                                  top: top, bottom: bottom, aspect: aspect, lines: accurate) else { return fast }
+        return better.labels.count > fast.labels.count ? better : fast
     }
 
     /// Offer fields for the stage-1 notification's "I accepted" button (before the refined offer exists). No addresses.

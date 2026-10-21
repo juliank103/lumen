@@ -26,6 +26,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var dismissed: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "dismissedOffers") ?? [])
     private var timer: AnyCancellable?
     private var offerObserver: AnyCancellable?
+    /// Reader accuracy per app (Diagnostics; a Home warning when an app's reading suddenly gets worse), every 5 minutes.
+    @Published private(set) var readerHealth: ReaderHealth?
+    private var readerHealthAt = Date.distantPast
     private var archive: [LiveOffer] = OfferArchive.load()
 
     init() {
@@ -119,6 +122,10 @@ final class AppModel: ObservableObject {
         journalCount = OfferJournal.readShared().count
         if screenCaptured { ShiftStore.shared.startIfNeeded() }
         TripActivityController.offer = currentOffer
+        if Date().timeIntervalSince(readerHealthAt) > 300 {
+            readerHealthAt = Date()
+            readerHealth = ReaderHealth.compute(offers: offers)
+        }
         TripActivityController.refresh(TripStore.shared.active)
         RestaurantStore.shared.update(offers: offers, trips: TripStore.shared.history + [TripStore.shared.active].compactMap { $0 })
     }

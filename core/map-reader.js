@@ -57,13 +57,34 @@
     const toScreen = (x, y) => ({ x: x / W, y: region.top + (y / H) * region.height });
     const asPins = discs => discs.map(d => {
       const center = toScreen(d.x, d.y), anchor = toScreen(d.x, Math.min(H - 1, d.y + style.anchorBelow * d.r));
-      return { x: anchor.x, y: anchor.y, centerX: center.x, centerY: center.y, radius: d.r / W };
+      const pin = { x: anchor.x, y: anchor.y, centerX: center.x, centerY: center.y, radius: d.r / W };
+      if (platform === 'doordash') pin.kind = iconKind(px, W, H, d);
+      return pin;
     });
     const pins = asPins(detectDiscs(mask, W, H));
     // Uber pickups are green pins; they are not drop-offs, but they anchor the map when the address is known.
     const pickupPins = platform === 'uber_eats' ? asPins(detectDiscs(green, W, H)) : [];
     const currentLocation = dot ? toScreen(dot.x, dot.y) : null;
     return { pins, pickupPins, currentLocation, styleName, aspect };
+  }
+
+  /* DoorDash draws a storefront in store pins and a person in drop-off pins (Oct 21 screenshots, maps read at 400 px):
+   * the person icon is taller than wide (0.71–0.80), the storefront about square (1.00–1.08). 'store', 'customer', or
+   * null when unclear, so a pin is never guessed. */
+  function iconKind(px, W, H, d) {
+    let minX = Infinity, maxX = -1, minY = Infinity, maxY = -1, n = 0;
+    const r = d.r * 0.72;
+    for (let y = Math.floor(d.y - r); y <= d.y + r; y++) {
+      for (let x = Math.floor(d.x - r); x <= d.x + r; x++) {
+        if (x < 0 || y < 0 || x >= W || y >= H || (x - d.x) * (x - d.x) + (y - d.y) * (y - d.y) > r * r) continue;
+        const i = (y * W + x) * 4;
+        if (0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2] >= 110) continue;
+        n++; if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y;
+      }
+    }
+    if (n < 12 || d.r < 9) return null; // Too small to see (a coarse map image).
+    const ratio = (maxX - minX + 1) / (maxY - minY + 1);
+    return ratio >= 0.92 ? 'store' : ratio <= 0.85 ? 'customer' : null;
   }
 
   /* The driver's blue dot: a filled, roughly round blue blob. Outlined blue icons (Mapbox's "i") and thin blue
@@ -117,7 +138,7 @@
         if (ox < 0 || oy < 0 || ox >= W || oy >= H || !mask[oy * W + ox]) outside++;
       }
       // A map button may cover part of a pin's edge, so a few inside samples may miss.
-      if (inside >= 13 && outside >= 11) discs.push(c);
+      if (inside >= 13 && outside >= 9) discs.push(c);
     }
     return discs;
   }
@@ -335,6 +356,17 @@
     const dotAnchored = !!(found.currentLocation && validPlace(extra.current));
     if (dotAnchored) controls.push({ x: found.currentLocation.x, y: found.currentLocation.y, lat: extra.current.lat, lon: extra.current.lon, weight: 4 });
     let chosen, how;
+    // DoorDash's icons say which pins are stores and which are drop-offs: no guessing (Oct 21).
+    const stores = found.pins.filter(p => p.kind === 'store'), customers = found.pins.filter(p => p.kind === 'customer');
+    if (platform === 'doordash' && stores.length && customers.length && stores.length + customers.length === found.pins.length) {
+      const pick = stores.length > 1 && validPlace(pickupPlace) && controls.length >= 1
+        ? choosePickupPin(Object.assign({}, found, { pins: stores }), controls, pickupPlace, null) : null;
+      const pickup = pick ? stores[pick.index] : stores[0];
+      chosen = { pins: customers.map(p => ({ x: p.x, y: p.y })), pickups: stores.map(p => ({ x: p.x, y: p.y })), reason: null };
+      if (validPlace(pickupPlace) && (pick || stores.length === 1)) controls.push({ x: pickup.x, y: pickup.y, lat: pickupPlace.lat, lon: pickupPlace.lon, weight: 4 });
+      how = 'pins told apart by their icons';
+      return finish(found, chosen, controls, labelCount, how, dotAnchored, labels, extra);
+    }
     const picked = platform !== 'uber_eats' && validPlace(pickupPlace) && found.pins.length > 1 && controls.length >= 1
       ? choosePickupPin(found, controls, pickupPlace, extra.outboundMilliMiles) : null;
     if (picked) {
@@ -353,6 +385,11 @@
       }
       how = 'pickup = pin nearest the dot';
     }
+    return finish(found, chosen, controls, labelCount, how, dotAnchored, labels, extra);
+  }
+
+  /* Fit the map from the anchored places and turn the chosen pins into coordinates (shared by both ways of choosing). */
+  function finish(found, chosen, controls, labelCount, how, dotAnchored, labels, extra) {
     // A short trace for the offer list, so a failure can be pinned to a step on the phone. Town names only.
     const debug = 'pins ' + found.pins.length + (found.currentLocation ? ', blue dot' : ', no blue dot') + (dotAnchored ? ' at phone position' : '') +
       '; labels ' + (labels.map(l => l.text).join('/') || 'none') + '; towns matched ' + labelCount + '; ' + how;

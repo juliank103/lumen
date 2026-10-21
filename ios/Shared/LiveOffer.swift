@@ -47,6 +47,9 @@ struct LiveOffer: Codable, Identifiable {
     /// the Zones heat map. Nil on older offers or when the reader had no position.
     let waitLat: Double?
     let waitLon: Double?
+    /// When the verdict was unsure ("Accept if return", "Check"): the card's text lines as "y|x|w|h|text" (no map, no
+    /// cross streets), saved so the export carries what the reader saw (user, Oct 21: method 7).
+    let cardLines: [String]?
     let headline: String
     let detail: String
     let fingerprint: String
