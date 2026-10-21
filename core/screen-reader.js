@@ -258,6 +258,10 @@
     if (total) {
       const t = isTotal(total.text), m = [t[0], t[1], t[3]];
       f.appMinutes = Number(m[1]); f.milesText = m[2];
+      // Long trips read "1 hr 4 min (17.3 mi) total": the hour counts too (Oct 21 export: two Uber offers read as 4 and 1
+      // minutes, showing $46/hr and $68/hr).
+      const hm = /(\d{1,2})\s*h(?:r|our)?s?\s+(\d{1,2})\s*min/i.exec(total.text);
+      if (hm) f.appMinutes = Number(hm[1]) * 60 + Number(hm[2]);
       const next = below(lines, total);
       if (next[0] && !isAddress(next[0].text)) f.merchants.push(next[0].text);
       const area = next[1] && /,\s*([A-Za-z][A-Za-z .'-]{2,30})$/.exec(next[1].text);
@@ -606,7 +610,11 @@
     if (outbound === null || pay === null || summary.maxReturnMilliMiles === null) return out;
     const valid = v => Number.isSafeInteger(v) && v >= 0;
     const target = '$' + (s.centsPerMile / 100).toFixed(2).replace(/\.00$/, '') + '/mi';
-    const ret = route && valid(route.returnMilliMiles) ? route.returnMilliMiles : null;
+    // A return far longer than the trip itself is a wrong match (Oct 21 export: a town 527 mi away, a 98 mi worst case on
+    // a 7 mi trip): treat it as unknown rather than decline on it.
+    const tooFar = route && valid(route.returnMilliMiles) && route.returnMilliMiles > Math.max(25000, 2 * outbound + 10000);
+    if (tooFar) out.returnNote = 'Return looked wrong (' + miles1(route.returnMilliMiles) + ' mi), not used';
+    const ret = route && valid(route.returnMilliMiles) && !tooFar ? route.returnMilliMiles : null;
     let credit = route && valid(route.creditMilliMiles) && route.creditMilliMiles >= 300 ? route.creditMilliMiles : 0;
     if (ret !== null) credit = Math.min(credit, outbound + ret - 500);
     credit = Math.max(0, credit);
