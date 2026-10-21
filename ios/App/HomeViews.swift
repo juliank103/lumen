@@ -206,11 +206,14 @@ struct HomeOnOrder: View {
                     }
                     Spacer()
                     VStack(alignment: .trailing, spacing: 2) {
-                        let pace = trip.paceCents(context.date)
+                        // The live pace means little in the first minutes ($580/hr at 1:34): the offer's predicted $/hr
+                        // until 10 minutes in, then the live pace.
+                        let early = trip.elapsed(context.date) < 600 && predictedHourly != nil
+                        let pace = early ? predictedHourly : trip.paceCents(context.date)
                         Text(pace.map(TripFormat.hourly) ?? "—")
                             .font(.system(size: 30, weight: .heavy, design: .rounded)).monospacedDigit()
                             .foregroundStyle((pace ?? 0) >= RulesStore.current.hourlyTargetCents ? Theme.neonGreen : Theme.neonYellow)
-                        Text("pace").font(.subheadline.weight(.medium)).foregroundStyle(Theme.secondaryText)
+                        Text(early ? "predicted" : "pace").font(.subheadline.weight(.medium)).foregroundStyle(Theme.secondaryText)
                     }
                 }
             }
@@ -434,5 +437,17 @@ struct HomeOfferRow: View {
         .padding(.leading, 12).padding(.trailing, 4).padding(.vertical, 8)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(color, lineWidth: 1.5))
+    }
+}
+
+extension Trip {
+    /// The offers' predicted $/hr for the whole trip (stacked: all pay over the longest order's predicted time).
+    var predictedHourlyCents: Int? {
+        let hours = orders.compactMap { o -> Double? in
+            guard let hourly = o.predictedHourlyCents, hourly > 0 else { return nil }
+            return Double(o.payCents) / Double(hourly)
+        }
+        guard hours.count == orders.count, let longest = hours.max(), longest > 0 else { return nil }
+        return Int((Double(orders.reduce(0) { $0 + $1.payCents }) / longest).rounded())
     }
 }

@@ -64,7 +64,8 @@ enum TripActivityController {
         var s = TripActivityAttributes.ContentState(
             mode: trip == nil ? "idle" : "trip",
             startedAt: trip?.startedAt ?? shifts.current?.startedAt ?? now,
-            paceText: trip?.paceCents(now).map { "$\($0 / 100)/hr" } ?? "—",
+            // Predicted $/hr for the first 10 minutes (the live pace means little that early), then the live pace.
+            paceText: (trip.flatMap { $0.elapsed(now) < 600 ? $0.predictedHourlyCents : nil } ?? trip?.paceCents(now)).map { "$\($0 / 100)/hr" } ?? "—",
             payText: trip.map { (Double($0.payCents) / 100).formatted(.currency(code: "USD")) } ?? "",
             orderCount: trip?.orders.filter { $0.ended == nil }.count ?? 0,
             nextLabel: next?.label, nextActionId: next?.id)

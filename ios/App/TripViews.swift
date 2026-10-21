@@ -121,7 +121,9 @@ struct OrderCheckpoints: View {
         // The fill reaches each stop's circle on arrival and waits there until the next arrival (user's sketches, Oct 21).
         let fill = Double(reached) / Double(n)
         GeometryReader { geo in
-            let w = geo.size.width, segment = w / Double(n)
+            // Even spacing with half a step left after the last circle, so every name fits under its circle without
+            // running into the next (screens, Oct 21: "Drop-off 1Drop-off 2").
+            let segment = geo.size.width / (Double(n) + 0.5), w = segment * Double(n)
             ZStack(alignment: .topLeading) {
                 Capsule().fill(Theme.track).frame(width: w, height: 8).offset(y: 7)
                 // Empty until the first arrival (user's sketch, Oct 21): no purple at all before the store.
@@ -131,16 +133,15 @@ struct OrderCheckpoints: View {
                 }
                 ForEach(Array(stages.enumerated()), id: \.offset) { index, stage in
                     let x = segment * Double(index + 1)
-                    let last = index == stages.count - 1
                     marker(left: stage.left, here: stage.done && !stage.left)
-                        .position(x: min(x, w - 11), y: 11)
-                    // Each stop's name centered under its circle; the last one ends at the bar's end.
+                        .position(x: x, y: 11)
+                    // Each stop's name centered under its circle.
                     Text(stage.label)
                         .font(.caption.weight(index == reached ? .bold : .medium))
                         .foregroundStyle(stage.done || index == reached ? Color.primary : Theme.secondaryText)
-                        .lineLimit(1).minimumScaleFactor(0.75)
-                        .frame(width: segment - 4, alignment: last ? .trailing : .center)
-                        .position(x: last ? w - segment / 2 + 2 : x, y: 36)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                        .frame(width: segment - 4)
+                        .position(x: x, y: 36)
                 }
             }
         }
