@@ -37,7 +37,7 @@ struct HomeOfferCard: View {
             }
             HStack(spacing: 12) {
                 Image(systemName: verdict.icon).font(.system(size: 26, weight: .black))
-                Text(verdict.word).font(.system(size: 28, weight: .heavy)).lineLimit(1).minimumScaleFactor(0.7)
+                Text(verdict.banner).font(.system(size: 28, weight: .heavy)).lineLimit(1).minimumScaleFactor(0.7)
                 Spacer()
             }
             .foregroundStyle(Theme.ground)
@@ -348,7 +348,7 @@ struct UndoToast: View {
 }
 
 extension Verdict {
-    var word: String {
+    var banner: String {
         switch self {
         case .accept: return "ACCEPT"
         case .decline: return "DECLINE"
