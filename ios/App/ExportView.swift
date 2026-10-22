@@ -74,7 +74,7 @@ struct RestoreButton: View {
 
     var body: some View {
         Button { picking = true } label: { Label("Restore from a backup", systemImage: "arrow.down.doc") }
-            .fileImporter(isPresented: $picking, allowedContentTypes: [.json]) { outcome in
+            .fileImporter(isPresented: $picking, allowedContentTypes: [.json, .plainText, .text, .data, .item]) { outcome in
                 guard case .success(let url) = outcome else { return }
                 result = restore(url)
             }
