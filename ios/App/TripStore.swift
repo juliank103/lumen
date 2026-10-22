@@ -506,7 +506,23 @@ final class TripStore: ObservableObject {
     /// Removes an order (a mistaken accept, or one the driver doesn't want in their history): its steps go too, and a
     /// trip left empty is removed. The journal keeps a "deleted" event so learning ignores the order. On the active trip
     /// this can be undone.
+    /// Orders removed with "Remove this order" in the last hour: offer id → (app, store codes, when). Screens never
+    /// accept them again (user, Oct 22 shift).
+    private var removed: [String: (platform: String, stores: Set<Int>, at: Date)] = [:]
+
+    func wasRemoved(_ offerId: String) -> Bool { removed[offerId] != nil }
+
+    /// Store codes of orders from `platform` removed in the last 30 minutes.
+    func recentlyRemovedStores(_ platform: String, now: Date = Date()) -> Set<Int> {
+        removed = removed.filter { now.timeIntervalSince($0.value.at) < 3600 }
+        return removed.values.filter { $0.platform == platform && now.timeIntervalSince($0.at) < 1800 }
+            .reduce(into: Set<Int>()) { $0.formUnion($1.stores) }
+    }
+
     func deleteOrder(_ offerId: String, at now: Date = Date()) {
+        if let order = trip(for: offerId)?.orders.first(where: { $0.offerId == offerId }) {
+            removed[offerId] = (order.platform, LifecycleSignal.storeCodes(order.stores + [order.merchant].compactMap { $0 }), now)
+        }
         func strip(_ trip: Trip) -> Trip? {
             var t = trip
             t.orders.removeAll { $0.offerId == offerId }

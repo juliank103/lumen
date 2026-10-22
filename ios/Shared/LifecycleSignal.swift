@@ -4,18 +4,22 @@ import Foundation
 /// notification named after the app and state — no data, no App Group needed. The app, running for the shift, turns it
 /// into trip steps. Only states that move a trip are sent.
 ///
-/// Pickup screens also carry a short code for the store they show (`store`, one of 32, from its first distinctive word),
+/// Pickup screens also carry a short code for the store they show (`store`, one of 256, from its first distinctive word),
 /// so the app accepts only an offer from that store (user, Oct 18 shift: Uber's pickup screen for an order __APP_NAME__ hadn't
 /// read was taken as an accept of the offer just declined — Pizzeria Deville while heading to Chipotle).
 struct LifecycleSignal: Hashable {
     static let platforms = ["doordash", "uber_eats", "grubhub"]
-    static let states = ["available", "heading_to_store", "at_store", "heading_to_customer", "at_customer", "delivered"]
+    /// "navigating_to_store": Uber's map bar ("5 min · 2.2 mi" over a name), which looks the same driving to a store or
+    /// back to your zone with Uber's navigation (user, Oct 22) — it can move an order on, never start one.
+    static let states = ["available", "heading_to_store", "navigating_to_store", "at_store", "heading_to_customer", "at_customer", "delivered"]
     static let storeStates = ["heading_to_store", "at_store"]
-    static let buckets = 32
+    /// 256, not 32 (user, Oct 22 shift: with 30 Uber offers in a few minutes nearly every code belonged to some offer,
+    /// so pickup-looking screens accepted New York Slices, Crumbl, Rosati's and Wildfire, none of them taken).
+    static let buckets = 256
 
     let platform: String
     let state: String
-    /// The store's code (0..<32) on a pickup screen that names its store; nil otherwise.
+    /// The store's code (0..<256) on a pickup screen that names its store; nil otherwise.
     let store: Int?
 
     var name: String {
@@ -67,8 +71,9 @@ struct LifecycleSignal: Hashable {
         storeName.flatMap { words($0).first }.map(code)
     }
 
-    /// Every code an offer's store names could show as (any distinctive word), for matching a pickup screen.
+    /// The codes an offer's stores show as on a pickup screen: each store name's first distinctive word (not every word,
+    /// which gave an offer several codes and made chance matches likely, Oct 22).
     static func storeCodes(_ storeNames: [String]) -> Set<Int> {
-        Set(storeNames.flatMap(words).map(code))
+        Set(storeNames.compactMap(storeCode))
     }
 }

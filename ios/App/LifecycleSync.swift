@@ -16,6 +16,9 @@ import UserNotifications
 /// 5. A passed offer stays passed: once the app is back to waiting for offers, or shows a newer offer, an older one is
 ///    accepted only through its store on a pickup screen.
 /// 6. Another app's order in progress: a screen "for" an app with no order is likely a misread — no store, no accept.
+/// 7. One match only (Oct 22): a store code that fits more than one recent offer accepts nothing.
+/// 8. A removed order stays removed (Oct 22: New York Slices came back 5 times after being deleted): an offer whose order
+///    was removed is never accepted from a screen again, nor is any other offer from that store for 30 minutes.
 /// A screen past a step that wasn't seen (e.g. "heading to the customer" without "left the store") fills that step in
 /// at low confidence, so its timing isn't used for learning but the trip keeps moving.
 @MainActor
@@ -41,9 +44,11 @@ final class LifecycleSync {
         case "heading_to_store":
             if step(.leftStore, p, now, inferred: false) { return }   // Off to the next store of a multi-store order.
             acceptFromPickupScreen(p, store: signal.store, now, otherAppBusy: otherAppBusy)
+        case "navigating_to_store":
+            step(.leftStore, p, now, inferred: false)   // Driving away from a store you're at; never an accept.
         case "at_store":
             acceptFromPickupScreen(p, store: signal.store, now, otherAppBusy: otherAppBusy)
-            step(.arrivedStore, p, now, inferred: false)
+            arriveAtStore(p, store: signal.store, now)
         case "heading_to_customer":
             if !hasOpenOrder(p) { promptMissedOrder(p, now, otherAppBusy: otherAppBusy); return }
             fillPickup(p, now)
@@ -70,9 +75,10 @@ final class LifecycleSync {
             // Rule 2: the screen names its store. An open order at that store is this screen's order; else the offer from
             // that store, if there is one.
             if openOrderShows(store, platform) { return }
-            if let offer = candidates(platform, now, within: Self.storeMatchWindow).last(where: { Self.storeCodes($0).contains(store) }) {
-                accept(offer, now)
-            }
+            if TripStore.shared.recentlyRemovedStores(platform, now: now).contains(store) { return }
+            let matches = candidates(platform, now, within: Self.storeMatchWindow).filter { Self.storeCodes($0).contains(store) }
+            // The same card read twice is one offer; two different offers with this code is a guess.
+            if let offer = matches.last, Set(matches.map { $0.offerId ?? $0.id }).count == 1 { accept(offer, now) }
             return
         }
         // No store on screen: rules 1, 4, 5, 6 — a fresh accept of the only recent offer, never a stack or a guess.
@@ -90,6 +96,7 @@ final class LifecycleSync {
         (model?.offers ?? []).filter { offer in
             offer.platform == platform && Self.isFullRead(offer) && now.timeIntervalSince(offer.seenAt) < window
                 && TripStore.shared.trip(for: offer.offerId ?? offer.id) == nil && !DemoData.isDemo(offer.offerId)
+                && !TripStore.shared.wasRemoved(offer.offerId ?? offer.id)
                 && offer.seenAt > (lastAvailable[platform] ?? .distantPast)
         }
     }
@@ -130,6 +137,24 @@ final class LifecycleSync {
     }
 
     // MARK: Steps
+
+    /// A store's pickup screen: arrival at that store. Nothing when it's the store you're already at (user, Oct 22: the
+    /// pickup screen at Mendocino Farms marked Raising Cane's, the next store, as arrived), or when the screen's store
+    /// isn't one still to visit.
+    private func arriveAtStore(_ platform: String, store: Int?, _ now: Date) {
+        guard let trip = TripStore.shared.active else { return }
+        let orders = trip.orders.filter { $0.platform == platform && $0.ended == nil }
+        let pending = trip.actions.filter { action in action.kind == .arrivedStore && orders.contains { $0.offerId == action.offerId } }
+        let storeName = { (action: TripAction) in orders.first { $0.offerId == action.offerId }.flatMap { $0.stores.indices.contains(action.stop) ? $0.stores[action.stop] : nil } }
+        if let store {
+            guard let action = pending.first(where: { LifecycleSignal.storeCode(storeName($0)) == store }) else { return }
+            TripStore.shared.perform(action, at: now, auto: true, source: "screen")
+            return
+        }
+        let atAStore = orders.contains { order in order.stores.indices.contains { trip.has(.arrivedStore, order.offerId, $0) && !trip.has(.leftStore, order.offerId, $0) } }
+        guard !atAStore, let action = pending.first else { return }
+        TripStore.shared.perform(action, at: now, auto: true, source: "screen")
+    }
 
     /// Leaving the store(s) before heading to the customer; an arrival that wasn't seen is filled in too.
     private func fillPickup(_ platform: String, _ now: Date) {

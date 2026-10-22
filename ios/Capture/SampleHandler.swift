@@ -546,17 +546,19 @@ final class SampleHandler: RPBroadcastSampleHandler {
             return
         }
         if !status.tolerant { recentPlatform = (status.platform, now) }
+        // Uber's map bar: maybe a store, maybe your zone (Oct 22) — sent as navigation, without a store, read twice.
+        let state = status.platform == "uber_eats" && status.state == "heading_to_store" ? "navigating_to_store" : status.state
         // Pickup screens carry their store's code, so the app only accepts an offer from that store (Oct 18 shift).
-        let store = LifecycleSignal.storeStates.contains(status.state) ? LifecycleSignal.storeCode(status.store) : nil
-        let key = status.platform + "." + status.state + (store.map { ".s\($0)" } ?? "")
+        let store = LifecycleSignal.storeStates.contains(state) ? LifecycleSignal.storeCode(status.store) : nil
+        let key = status.platform + "." + state + (store.map { ".s\($0)" } ?? "")
         // Pickup screens are specific enough to act on at the first read (they're the evidence of an accept, Oct 16
         // field miss); other states, and any loose (misread) match, must be read twice in a row.
-        let immediate = (status.state == "heading_to_store" || status.state == "at_store") && !status.tolerant
+        let immediate = (state == "heading_to_store" || state == "at_store") && !status.tolerant
         guard key == candidateStatus || immediate else { candidateStatus = key; return }
         candidateStatus = key
         guard key != sentStatus else { return }
         sentStatus = key
-        LifecycleSignal(platform: status.platform, state: status.state, store: store).post()
+        LifecycleSignal(platform: status.platform, state: state, store: store).post()
     }
 
     /// FNV-1a, deterministic across launches (Swift's hashValue is not), for stable offer IDs.
