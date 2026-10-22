@@ -36,6 +36,15 @@ final class TripTests: XCTestCase {
         XCTAssertEqual(trip.actions.first?.kind, .arrivedDropoff)
     }
 
+    func testADropoffBetweenTwoStoresWithTwoDropoffs() {
+        var trip = Trip(id: "t", startedAt: t0, orders: [order("a", stores: ["Mendocino Farms", "Raising Cane's"], dropoffs: 2)], steps: [], endedAt: nil)
+        trip.steps += [step(.arrivedStore, "a", 0, 3), step(.leftStore, "a", 0, 6)]
+        XCTAssertTrue(trip.actions.contains { $0.kind == .arrivedDropoff })
+        trip.steps += [step(.arrivedDropoff, "a", 0, 12), step(.delivered, "a", 0, 14)]
+        XCTAssertFalse(trip.actions.contains { $0.kind == .arrivedDropoff })
+        XCTAssertTrue(trip.actions.contains { $0.kind == .arrivedStore && $0.stop == 1 })
+    }
+
     func testStackedOrdersAreIndependentAndLeavingComesFirst() {
         var trip = Trip(id: "t", startedAt: t0, orders: [order("a", stores: ["Five Guys"]), order("b", stores: ["Chipotle"])], steps: [], endedAt: nil)
         trip.steps += [step(.arrivedStore, "a", 0, 3), step(.leftStore, "a", 0, 8), step(.arrivedStore, "b", 0, 12)]

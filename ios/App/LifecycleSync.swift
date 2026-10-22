@@ -133,11 +133,15 @@ final class LifecycleSync {
 
     /// Leaving the store(s) before heading to the customer; an arrival that wasn't seen is filled in too.
     private func fillPickup(_ platform: String, _ now: Date) {
-        for _ in 0..<6 {
-            if step(.leftStore, platform, now, inferred: true) { continue }
-            if step(.arrivedStore, platform, now, inferred: true) { continue }
-            break
-        }
+        // Leave the store(s) you're at.
+        for _ in 0..<6 where step(.leftStore, platform, now, inferred: true) {}
+        // Heading to a customer means at least one pickup is done: fill in one unseen store only when none has been
+        // left yet. With several stores the app can send you to a drop-off between them (user, Oct 22: DoorDash went
+        // Mendocino Farms -> drop-off -> Raising Cane's, and Raising Cane's was marked arrived and left before you'd been there).
+        guard let trip = TripStore.shared.active,
+              let order = trip.orders.first(where: { $0.platform == platform && $0.ended == nil }),
+              !order.stores.indices.contains(where: { trip.has(.leftStore, order.offerId, $0) }) else { return }
+        if step(.arrivedStore, platform, now, inferred: true) { step(.leftStore, platform, now, inferred: true) }
     }
 
     private func hasOpenOrder(_ platform: String) -> Bool {

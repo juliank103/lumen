@@ -313,6 +313,25 @@ struct OrderOptionsContent: View {
                 Button("Remove a drop-off") { store.adjust(order.offerId, dropoffs: -1) }
             }
             Button("Add a store") { store.adjust(order.offerId, addStore: true) }
+            // Fixing a wrong step any time during the order (user, Oct 22: "there's no undo button for active orders").
+            if !reachedStops.isEmpty || store.canUndo {
+                Divider()
+                if store.canUndo { Button("Undo last step") { store.undo() } }
+                ForEach(reachedStops, id: \.label) { stop in
+                    Button("Not at \(stop.label) yet") { store.clearStop(order.offerId, store: stop.store, stop: stop.index) }
+                }
+            }
+    }
+
+    /// Stops of this order already marked: each store, and the last drop-off reached (an earlier one can't be cleared
+    /// without the later ones).
+    private var reachedStops: [(label: String, store: Bool, index: Int)] {
+        var list = order.stores.enumerated()
+            .filter { trip.has(.arrivedStore, order.offerId, $0.offset) || trip.has(.leftStore, order.offerId, $0.offset) }
+            .map { (label: $0.element, store: true, index: $0.offset) }
+        let reached = max(trip.count(.arrivedDropoff, order.offerId), trip.count(.delivered, order.offerId))
+        if reached > 0 { list.append((label: order.dropoffs > 1 ? "drop-off \(reached)" : "the drop-off", store: false, index: reached - 1)) }
+        return list
     }
 }
 

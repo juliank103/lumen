@@ -156,10 +156,11 @@ struct Trip: Codable, Identifiable, Equatable {
                     : order.dropoffs > 1 ? "drop-off \(index + 1) of \(order.dropoffs)" : "drop-off"
             }
             let arrived = count(.arrivedDropoff, order.offerId), delivered = count(.delivered, order.offerId)
-            let allLeft = order.stores.indices.allSatisfy { has(.leftStore, order.offerId, $0) }
+            let left = order.stores.indices.filter { has(.leftStore, order.offerId, $0) }.count
             if arrived > delivered {
                 deliver.append(TripAction(kind: .delivered, offerId: order.offerId, stop: delivered, label: "Delivered · \(name(delivered))"))
-            } else if allLeft && arrived < order.dropoffs {
+            } else if arrived < order.dropoffs && (left == order.stores.count || (arrived < left && arrived + 1 < order.dropoffs)) {
+                // A drop-off can come between two stores (DoorDash routes, Oct 22) while another drop-off is still to come.
                 arriveDrop.append(TripAction(kind: .arrivedDropoff, offerId: order.offerId, stop: arrived, label: "Arrived at \(name(arrived))"))
             }
         }
@@ -345,6 +346,23 @@ final class TripStore: ObservableObject {
         if history.count > entry.historyCount { history.removeLast(history.count - entry.historyCount) }
         let tripId = entry.before?.id ?? "trip"
         OfferJournal.appendEvents(entry.events.map { event("retracted", $0.offerId, now, tripId, ["target": $0.id]) })
+        save()
+        TripNotifier.update(active)
+    }
+
+    /// Marks one stop as not reached (user, Oct 22: "there's no undo button for active orders"): removes its arrival and
+    /// its pickup / delivery, any time during the trip. Can itself be undone.
+    func clearStop(_ offerId: String, store: Bool, stop: Int, at now: Date = Date()) {
+        guard var trip = active else { return }
+        let kinds: Set<Trip.StepKind> = store ? [.arrivedStore, .leftStore] : [.arrivedDropoff, .delivered]
+        let removed = trip.steps.filter { $0.offerId == offerId && $0.stop == stop && kinds.contains($0.kind) }
+        guard !removed.isEmpty else { return }
+        let before = active, historyCount = history.count
+        trip.steps.removeAll { step in removed.contains { $0.id == step.id } }
+        active = trip
+        undoStack.append(UndoEntry(before: before, historyCount: historyCount, events: []))
+        if undoStack.count > 20 { undoStack.removeFirst(undoStack.count - 20) }
+        OfferJournal.appendEvents(removed.map { event("retracted", offerId, now, trip.id, ["target": $0.id]) })
         save()
         TripNotifier.update(active)
     }
