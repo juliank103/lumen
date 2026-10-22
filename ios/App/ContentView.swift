@@ -6,6 +6,7 @@ struct ContentView: View {
     @StateObject private var model = AppModel()
     @StateObject private var signals = ExtensionSignals()
     @StateObject private var menu = MenuState()
+    @State private var openedBackupResult: String?
 
     var body: some View {
         GeometryReader { geometry in
@@ -29,6 +30,16 @@ struct ContentView: View {
         .environmentObject(signals)
         .environmentObject(menu)
         .sheet(isPresented: $menu.showingHelp) { DashHelp() }
+        // A backup opened from the Files app (Share → __APP_NAME__): restore it (user, Oct 22).
+        .onOpenURL { url in
+            guard url.isFileURL else { return }
+            openedBackupResult = BackupRestore.restore(url, model: model)
+        }
+        .alert("Restore", isPresented: Binding(get: { openedBackupResult != nil }, set: { if !$0 { openedBackupResult = nil } })) {
+            Button("OK") { openedBackupResult = nil }
+        } message: {
+            Text(openedBackupResult ?? "")
+        }
         .task { await model.start() }
     }
 

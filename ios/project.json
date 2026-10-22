@@ -44,7 +44,10 @@
           "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
           "CFBundleShortVersionString": "$(MARKETING_VERSION)",
           "CaptureExtensionIdentifier": "com.juliank103.mellodycopilot.Capture",
-          "ITSAppUsesNonExemptEncryption": false
+          "ITSAppUsesNonExemptEncryption": false,
+          "LSSupportsOpeningDocumentsInPlace": false,
+          "CFBundleDocumentTypes": [{ "CFBundleTypeName": "__APP_NAME__ backup", "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "Alternate", "LSItemContentTypes": ["public.json"] }]
         }
       },
       "entitlements": { "path": "Generated/App.entitlements", "properties": {

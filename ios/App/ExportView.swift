@@ -74,9 +74,14 @@ struct RestoreButton: View {
 
     var body: some View {
         Button { picking = true } label: { Label("Restore from a backup", systemImage: "arrow.down.doc") }
-            .fileImporter(isPresented: $picking, allowedContentTypes: [.json, .plainText, .text, .data, .item]) { outcome in
-                guard case .success(let url) = outcome else { return }
-                result = restore(url)
+            // The picker copies the file into __APP_NAME__ (user, Oct 22: tapping the backup did nothing in a re-signed
+            // install — the in-place picker needs file permissions such installs can lose).
+            .sheet(isPresented: $picking) {
+                BackupPicker { url in
+                    picking = false
+                    if let url { result = BackupRestore.restore(url, model: model) } // nil: cancelled.
+                }
+                .ignoresSafeArea()
             }
             .alert("Restore", isPresented: Binding(get: { result != nil }, set: { if !$0 { result = nil } })) {
                 Button("OK") { result = nil }
@@ -84,8 +89,34 @@ struct RestoreButton: View {
                 Text(result ?? "")
             }
     }
+}
 
-    private func restore(_ url: URL) -> String {
+/// The system file picker, copying the chosen file into the app (no file permissions needed afterwards).
+struct BackupPicker: UIViewControllerRepresentable {
+    let onPick: (URL?) -> Void
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.json, .plainText, .data, .item], asCopy: true)
+        picker.allowsMultipleSelection = false
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+    func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onPick: (URL?) -> Void
+        init(onPick: @escaping (URL?) -> Void) { self.onPick = onPick }
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) { onPick(urls.first) }
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { onPick(nil) }
+    }
+}
+
+/// Restoring a backup: from the picker, or from the Files app (Share / Open in __APP_NAME__).
+@MainActor
+enum BackupRestore {
+    static func restore(_ url: URL, model: AppModel) -> String {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         guard let data = try? Data(contentsOf: url),
