@@ -659,26 +659,30 @@
     const tooFar = route && valid(route.returnMilliMiles) && route.returnMilliMiles > Math.max(25000, 2 * outbound + 10000);
     if (tooFar) out.returnNote = 'Return looked wrong (' + miles1(route.returnMilliMiles) + ' mi), not used';
     const ret = route && valid(route.returnMilliMiles) && !tooFar ? route.returnMilliMiles : null;
-    let credit = route && valid(route.creditMilliMiles) && route.creditMilliMiles >= 300 ? route.creditMilliMiles : 0;
-    if (ret !== null) credit = Math.min(credit, outbound + ret - 500);
+    const rawCredit = route && valid(route.creditMilliMiles) && route.creditMilliMiles >= 300 ? route.creditMilliMiles : 0;
+    // The credit can cancel the drive back, never the trip itself (user, Oct 22: Michael's Grill, $5.10 for 3.6 mi, showed
+    // "$10.20/mi · Accept" because a 10.1 mi credit cancelled the trip too). And none for a return from a town's center,
+    // which is too rough for a difference of a few miles.
+    let credit = route && route.kind === 'dropoff_town' ? 0 : rawCredit;
+    if (ret !== null) credit = Math.min(credit, ret);
     credit = Math.max(0, credit);
     if (credit) out.creditMilliMiles = credit;
     const creditText = credit ? ' (minus ' + miles1(credit) + ' mi you were driving back anyway)' : '';
     if (ret === null) {
       // No return: say how long a return the offer can afford, counting the drive back already planned.
       if (credit) {
-        const max = Math.floor(pay * 1000 / s.centsPerMile) - (outbound - credit);
-        out.notice = max < 0 ? perMile(pay, Math.max(500, outbound - credit)) + ' · Decline' : 'Accept if return ≤ ' + miles1(max) + ' mi';
-        out.detail = (max < 0 ? 'Below ' + target + ' before the return trip' : 'Meets ' + target + ' if return ≤ ' + miles1(max) + ' mi') + creditText;
+        const budget = Math.floor(pay * 1000 / s.centsPerMile), max = budget - outbound + credit;
+        out.notice = budget < outbound ? perMile(pay, Math.max(500, outbound)) + ' · Decline' : 'Accept if return ≤ ' + miles1(max) + ' mi';
+        out.detail = (budget < outbound ? 'Below ' + target + ' before the return trip' : 'Meets ' + target + ' if return ≤ ' + miles1(max) + ' mi') + creditText;
       }
       return out;
     }
     out.returnMilliMiles = ret; out.returnKind = route.kind;
-    if (pay * 1000 < s.centsPerMile * Math.max(500, outbound - credit)) {
+    if (pay * 1000 < s.centsPerMile * Math.max(500, outbound)) {
       // Below target before any return driving.
       out.tone = 'bad';
-      out.detail = 'Below ' + target + ' before the return trip' + creditText;
-      out.notice = perMile(pay, Math.max(500, outbound - credit)) + ' · Decline';
+      out.detail = 'Below ' + target + ' before the return trip';
+      out.notice = perMile(pay, Math.max(500, outbound)) + ' · Decline';
       return out;
     }
     const effective = Math.max(500, outbound + ret - credit);
@@ -689,18 +693,20 @@
       const u = valid(route.uncertaintyMilliMiles) && route.uncertaintyMilliMiles > 0 ? route.uncertaintyMilliMiles : 1000;
       out.uncertaintyMilliMiles = u;
       surely = pay * 1000 >= s.centsPerMile * (effective + u);
-      surelyNot = pay * 1000 < s.centsPerMile * Math.max(500, outbound - credit, effective - u);
+      surelyNot = pay * 1000 < s.centsPerMile * Math.max(500, outbound, effective - u);
       prefix = '≈';
     } else if (route.kind === 'worst_case') {
       // An upper bound on the return: passing proves it; failing proves nothing.
-      surely = pay * 1000 >= s.centsPerMile * effective; surelyNot = pay * 1000 < s.centsPerMile * Math.max(500, outbound - credit);
+      surely = pay * 1000 >= s.centsPerMile * effective; surelyNot = pay * 1000 < s.centsPerMile * Math.max(500, outbound);
       prefix = surely ? '≥' : '';
     } else {
       surely = pay * 1000 >= s.centsPerMile * effective; surelyNot = !surely;
     }
     // Hourly: time to the last drop-off + return drive − the drive back already planned.
-    const creditMinutes = credit && route && valid(route.creditMinutes) ? route.creditMinutes : 0;
-    const trip = tripMinutes(summary, route, ret, credit);
+    // Minutes the same way: the credit cancels at most the return drive's minutes.
+    const creditMinutes = credit && route && valid(route.creditMinutes)
+      ? Math.min(Math.round(route.creditMinutes * credit / rawCredit), valid(route.returnMinutes) ? route.returnMinutes : Infinity) : 0;
+    const trip = tripMinutes(summary, route, ret, rawCredit);
     if (trip.note) out.tripTimeNote = trip.note;
     out.tripMinutes = trip.minutes; out.tripMinutesEstimated = trip.minutes === null ? null : trip.estimated;
     if (valid(route.returnMinutes)) out.returnMinutes = route.returnMinutes;
@@ -746,14 +752,14 @@
     const known = context && valid(context.creditMilliMiles);
     const credit = known && context.creditMilliMiles >= 300 ? context.creditMilliMiles : 0;
     const creditMinutes = known && credit && valid(context.creditMinutes) ? context.creditMinutes : 0;
-    // Certain mileage failure: below target even with no return driving at all.
-    if (pay * 1000 < s.centsPerMile * Math.max(500, outbound - credit)) {
-      return { word: 'Decline', notice: perMile(pay, Math.max(500, outbound - credit)) + ' · Decline' };
+    // Certain mileage failure: below target on the trip's own miles (the credit only offsets the drive back, Oct 22).
+    if (pay * 1000 < s.centsPerMile * Math.max(500, outbound)) {
+      return { word: 'Decline', notice: perMile(pay, Math.max(500, outbound)) + ' · Decline' };
     }
-    // Certain hourly failure: even the card's own time (no return, minus the drive back already planned) is too slow.
-    if (s.hourlyTargetCents !== null && summary.appMinutes !== null && summary.appMinutes - creditMinutes >= 5 &&
-        pay * 60 / (summary.appMinutes - creditMinutes) < s.hourlyTargetCents) {
-      return { word: 'Decline', notice: '≤$' + Math.floor(pay * 60 / (summary.appMinutes - creditMinutes) / 100) + '/hr · Decline' };
+    // Certain hourly failure: even the card's own time, with no return at all, is too slow.
+    if (s.hourlyTargetCents !== null && summary.appMinutes !== null && summary.appMinutes >= 5 &&
+        pay * 60 / summary.appMinutes < s.hourlyTargetCents) {
+      return { word: 'Decline', notice: '≤$' + Math.floor(pay * 60 / summary.appMinutes / 100) + '/hr · Decline' };
     }
     if (known && pay * 1000 >= s.centsPerMile * 2 * outbound) {
       // No number here: the worst-case floor (pay ÷ 2 × app miles) read as the real rate and confused the user (Oct 14).
