@@ -174,7 +174,7 @@ struct BreakdownView: View {
             Chart(spread.buckets, id: \.from) { bucket in
                 // Explicit start and end: a bar on a number axis has no width of its own (screens, Oct 23: no bars).
                 BarMark(xStart: .value("From", Double(bucket.from) / 100 + 0.005), xEnd: .value("To", Double(bucket.from + 10) / 100 - 0.005),
-                        y: .value("Offers", bucket.count))
+                        yStart: .value("None", 0), yEnd: .value("Offers", bucket.count))
                     .foregroundStyle(bucket.from >= rate ? Theme.neonGreen : Theme.secondaryText.opacity(0.45))
                 RuleMark(x: .value("Your rate", Double(rate) / 100))
                     .foregroundStyle(Theme.purple).lineStyle(StrokeStyle(lineWidth: 2, dash: [4, 3]))
