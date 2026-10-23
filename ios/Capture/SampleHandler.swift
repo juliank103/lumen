@@ -366,7 +366,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
         if let value = LiveOfferStorage.notificationValue(offer) { userInfo[LiveOfferStorage.notificationKey] = value }
         let notice = offer.notice ?? offer.detail
         notify(id: offer.offerId ?? offer.id, title: offer.headline,
-               body: Verdict(notice: offer.notice).dot + " " + notice, thread: "offers", userInfo: userInfo,
+               body: Verdict(notice: offer.notice).dot + " " + notice + (offer.why.map { "\n" + $0 } ?? ""), thread: "offers", userInfo: userInfo,
                category: NotificationActions.offerCategory)
         Signal.offer.post() // The app shows it on Home and in the Dynamic Island.
         // Journal (addendum §8–11): append-only events — what the card showed, then each prediction with the logic

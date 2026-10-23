@@ -13,6 +13,14 @@ struct HomeOfferCard: View {
 
     private var verdict: Verdict { Verdict(notice: offer.notice) }
 
+    /// An icon for the why line, from its first words.
+    static func whyIcon(_ why: String) -> String {
+        why.hasPrefix("On your way home") ? "house" : why.hasPrefix("Too slow") || why.hasPrefix("Time") ? "clock"
+            : why.hasPrefix("Long drive back") ? "arrow.uturn.backward" : why.contains("map pin") ? "mappin"
+            : why.hasPrefix("Drop-off not found") ? "mappin.slash" : why.hasPrefix("Numbers") ? "exclamationmark.triangle"
+            : why.contains("town center") || why.contains("drop-off street") ? "road.lanes" : "info.circle"
+    }
+
     /// "$1.42/mi · $31/hr · Accept" → ("$1.42", "$31").
     private var rates: (perMile: String?, perHour: String?) {
         let parts = (offer.notice ?? "").components(separatedBy: "·").map { $0.trimmingCharacters(in: .whitespaces) }
@@ -57,6 +65,11 @@ struct HomeOfferCard: View {
                 }
             }
             .font(.body.weight(.medium)).foregroundStyle(Theme.secondaryText)
+            // The one reason behind the verdict (user, Oct 22).
+            if let why = offer.why {
+                Label(why, systemImage: Self.whyIcon(why)).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.secondaryText)
+                    .lineLimit(1).minimumScaleFactor(0.8)
+            }
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 let left = max(0, 1 - context.date.timeIntervalSince(offer.seenAt) / AppModel.offerHeroSeconds)
                 GeometryReader { geo in
@@ -340,8 +353,13 @@ struct UndoToast: View {
     @ObservedObject private var store = TripStore.shared
     let trip: Trip
 
+    private var label: String? {
+        guard PreviewData.isActive else { return store.undoLabel }
+        return trip.steps.max { $0.at < $1.at }?.label ?? trip.orders.last.map { "Accepted · " + ($0.stores.first ?? "") }
+    }
+
     var body: some View {
-        if let label = store.undoLabel {
+        if let label {
             HStack(spacing: 10) {
                 Image(systemName: "checkmark").font(.subheadline.weight(.black)).foregroundStyle(Theme.neonGreen)
                 Text(label).font(.subheadline.weight(.semibold)).lineLimit(1)

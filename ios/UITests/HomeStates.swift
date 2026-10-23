@@ -6,12 +6,17 @@ import XCTest
 final class HomeStates: XCTestCase {
     private var count = 100
 
-    private func capture(_ state: String, extra: [String] = [], name: String? = nil) {
+    private func capture(_ state: String, extra: [String] = [], name: String? = nil, tap: String? = nil) {
         count += 2
         let app = XCUIApplication()
         app.launchArguments = ["-lumenPreview", "-dark", "-state", state] + extra
         app.launch()
         sleep(3)
+        // Open a menu first (e.g. the order's ⋯ options).
+        if let tap {
+            let button = app.buttons[tap].firstMatch
+            if button.waitForExistence(timeout: 4) { button.tap(); sleep(1) }
+        }
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = String(format: "%03d-", count) + (name ?? state)
         attachment.lifetime = .keepAlways
@@ -34,6 +39,7 @@ final class HomeStates: XCTestCase {
         capture("orderAtStore", name: "order-at-first-store")
         capture("order")
         capture("orderOffer", name: "order-with-offer")
+        capture("order", name: "order-options-menu", tap: "Order options")
         for (tab, name) in [(1, "offers"), (2, "earnings")] { capture("waiting", extra: ["-tab", String(tab)], name: name) }
     }
 }

@@ -102,11 +102,11 @@ enum PreviewData {
 
     static let offers: [LiveOffer] = {
         let now = Date()
-        let rows: [(String, Int, Int, String, String, String, Double)] = [
-            ("grubhub", 876, 10200, "Roadtrip Bowls by Lazy Dog", "$0.85/mi · Decline", "bad", -1500),
-            ("doordash", 850, 3500, "Mendocino Farms", "≈$1.06/mi · Close call", "tight", -1100),
-            ("uber_eats", 2706, 11900, "Olive Garden", "$1.31/mi · $27/hr · Accept", "good", -600),
-            ("uber_eats", 1384, 6700, "Five Guys", "$1.62/mi · $29/hr · Accept", "good", -12)
+        let rows: [(String, Int, Int, String, String, String, Double, String)] = [
+            ("grubhub", 876, 10200, "Roadtrip Bowls by Lazy Dog", "$0.85/mi · Decline", "bad", -1500, "Under $1/mi before the drive back"),
+            ("doordash", 850, 3500, "Mendocino Farms", "≈$1.06/mi · Close call", "tight", -1100, "Return from map pin · ±0.8 mi"),
+            ("uber_eats", 2706, 11900, "Olive Garden", "$1.31/mi · $27/hr · Accept", "good", -600, "Return from drop-off street"),
+            ("uber_eats", 1384, 6700, "Five Guys", "$1.62/mi · $29/hr · Accept", "good", -12, "On your way home · saves 4.1 mi")
         ]
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
@@ -116,7 +116,7 @@ enum PreviewData {
                 "platform": row.0, "payCents": row.1, "outboundMilliMiles": row.2, "merchant": row.3,
                 "confidence": 0.97, "tone": row.5, "notice": row.4, "detail": "Sample offer (invented)",
                 "headline": "Sample", "fingerprint": "\(row.0)|\(row.1)", "latencyFirstMs": 1400, "latencyRefinedMs": 5200,
-                "offerId": "preview-\(row.0)-\(row.1)"
+                "offerId": "preview-\(row.0)-\(row.1)", "why": row.7
             ]
             guard let data = try? JSONSerialization.data(withJSONObject: object) else { return nil }
             return try? decoder.decode(LiveOffer.self, from: data)

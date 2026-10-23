@@ -640,7 +640,42 @@
       out.detail = "The numbers read off the card don't fit together (" + summary.suspect + '): check the offer in the app';
       out.tone = 'tight';
     }
+    out.why = whyLine(out, !!summary.suspect, copilot.settings(settings || {}));
     return out;
+  }
+
+  /* The one reason that decided the verdict, short enough for a notification's second line (user, Oct 22: Michael's
+   * Grill showed "$10.20/mi · Accept" with nothing saying a drive-back credit did it). Null when there's nothing to say. */
+  function whyLine(out, suspect, s) {
+    if (suspect) return "Numbers don't fit · check the app";
+    const notice = out.notice || '', pay = out.payCents, outbound = out.outboundMilliMiles, ret = out.returnMilliMiles;
+    if (pay === null || pay === undefined || outbound === null || outbound === undefined) return null;
+    const target = '$' + (s.centsPerMile / 100).toFixed(2).replace(/\.00$/, '') + '/mi';
+    const money = '$' + (pay / 100).toFixed(2);
+    const source = () => out.returnKind === 'map' ? 'Return from map pin · ±' + miles1(out.uncertaintyMilliMiles || 1000) + ' mi'
+      : out.returnKind === 'dropoff' ? 'Return from drop-off street'
+      : out.returnKind === 'dropoff_town' ? 'Return from town center'
+      : out.returnKind === 'worst_case' ? 'Passes even the longest return' : null;
+    if (/^Accept if return/.test(notice)) {
+      return ret === null || ret === undefined ? 'Drop-off not found · return unknown' : 'Return could be up to ' + miles1(ret) + ' mi';
+    }
+    if (/· Decline$/.test(notice)) {
+      if (pay * 1000 < s.centsPerMile * outbound) return 'Under ' + target + ' before the drive back';
+      const hourly = out.hourlyCents;
+      if (hourly && s.hourlyTargetCents !== null && hourly < s.hourlyTargetCents) {
+        return 'Too slow · ' + Math.round(pay * 60 / hourly) + ' min for ' + money;
+      }
+      if (ret !== null && ret !== undefined && ret > outbound) return 'Long drive back · ' + miles1(ret) + ' mi';
+      return 'Under ' + target + ' with the drive back';
+    }
+    if (/· Close call$/.test(notice)) return out.returnKind === 'map' ? source() : 'Right at ' + target;
+    if (/· Accept( \(time unknown\))?$/.test(notice)) {
+      if ((out.creditMilliMiles || 0) >= 1000) return 'On your way home · saves ' + miles1(out.creditMilliMiles) + ' mi';
+      if (/time unknown/.test(notice)) return 'Time unknown · miles pass';
+      if (out.tripMinutesEstimated) return 'Time guessed · ' + (source() || 'miles pass');
+      return source();
+    }
+    return null;
   }
 
   function withReturnCore(summary, route, copilot, settings) {
