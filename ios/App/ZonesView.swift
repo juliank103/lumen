@@ -23,6 +23,8 @@ struct ZoneHeat: Decodable, Equatable {
     struct Place: Decodable, Equatable, Identifiable {
         let id: String, name: String, lat: Double, lon: Double, source: String, offers: Int, good: Int
     }
+    /// With "Now": "day" (this weekday at this time), else "weekdays" / "weekend" (too little history for one day).
+    let scope: String?
     let offers: Int, goodOffers: Int, placedOffers: Int, fromSpots: Int
     let hours: Double
     let confidence: String
@@ -40,12 +42,13 @@ struct ZonesView: View {
     @ObservedObject private var restaurants = RestaurantStore.shared
     @ObservedObject private var places = RestaurantPlaces.shared
     @ObservedObject private var shifts = ShiftStore.shared
-    @State private var part = ZonesView.currentPart()
+    /// Opens on "Now": the usual hot zones for this hour on this weekday (user, Oct 23).
+    @State private var part = "now"
     @State private var days = "all"
     @State private var heat: ZoneHeat?
     @State private var camera: MapCameraPosition = .userLocation(fallback: .automatic)
 
-    static let parts: [(key: String, label: String)] = [("breakfast", "Bfast"), ("lunch", "Lunch"), ("dinner", "Dinner"),
+    static let parts: [(key: String, label: String)] = [("now", "Now"), ("breakfast", "Bfast"), ("lunch", "Lunch"), ("dinner", "Dinner"),
                                                          ("late_night", "Late"), ("all", "All")]
 
     var body: some View {
@@ -56,10 +59,14 @@ struct ZonesView: View {
                         ForEach(Self.parts, id: \.key) { Text($0.label).tag($0.key) }
                     }
                     .pickerStyle(.segmented)
-                    Picker("Days", selection: $days) {
-                        Text("All days").tag("all"); Text("Weekdays").tag("weekday"); Text("Weekends").tag("weekend")
+                    if part == "now" {
+                        Text(nowCaption).font(.footnote.weight(.semibold)).foregroundStyle(.secondary).frame(maxWidth: .infinity)
+                    } else {
+                        Picker("Days", selection: $days) {
+                            Text("All days").tag("all"); Text("Weekdays").tag("weekday"); Text("Weekends").tag("weekend")
+                        }
+                        .pickerStyle(.segmented)
                     }
-                    .pickerStyle(.segmented)
                 }
                 .padding(.horizontal).padding(.bottom, 8)
                 map
@@ -146,6 +153,17 @@ struct ZonesView: View {
         .background(Color(.systemBackground))
     }
 
+    /// "Fridays around 3 PM", or "Weekdays around 3 PM" while one day has too little history.
+    private var nowCaption: String {
+        let now = Date()
+        let hour = now.formatted(.dateTime.hour())
+        switch heat?.scope {
+        case "weekdays": return "Weekdays around \(hour)"
+        case "weekend": return "Weekends around \(hour)"
+        default: return now.formatted(.dateTime.weekday(.wide)) + "s around \(hour)"
+        }
+    }
+
     private func footer(_ heat: ZoneHeat) -> String {
         let label = ["early": "Early guess", "building": "Getting sharper", "solid": "Solid"][heat.confidence] ?? ""
         var text = "\(label) · \(heat.placedOffers) of \(heat.offers) offers on the map"
@@ -203,16 +221,4 @@ struct ZonesView: View {
         item.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
     }
 
-    /// The period it is now (core/shift.js DAY_PARTS: breakfast 6:00, lunch 11:00, dinner 15:30, late night 22:30).
-    static func currentPart(_ date: Date = Date()) -> String {
-        let c = Calendar.current.dateComponents([.hour, .minute], from: date)
-        let minute = (c.hour ?? 0) * 60 + (c.minute ?? 0)
-        switch minute {
-        case 360..<660: return "breakfast"
-        case 660..<930: return "lunch"
-        case 930..<1350: return "dinner"
-        case 90..<360: return "all" // Early morning: too few offers to map on its own.
-        default: return "late_night"
-        }
-    }
 }

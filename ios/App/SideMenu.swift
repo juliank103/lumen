@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Where the app can go (user, Oct 15: DoorDash-style menu instead of tabs — the app has outgrown four tabs).
 enum AppSection: String, CaseIterable, Identifiable {
-    case home, offers, earnings, breakdown, zones, restaurants, account, diagnostics
+    case home, offers, earnings, breakdown, planner, zones, restaurants, account, diagnostics
     var id: String { rawValue }
 
     var title: String {
@@ -11,6 +11,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .offers: return "Offers"
         case .earnings: return "Earnings"
         case .breakdown: return "Breakdown"
+        case .planner: return "Shift planner"
         case .zones: return "Zones"
         case .restaurants: return "Restaurants"
         case .account: return "Account"
@@ -24,6 +25,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .offers: return "list.bullet.rectangle"
         case .earnings: return "dollarsign.circle"
         case .breakdown: return "chart.pie"
+        case .planner: return "calendar.badge.clock"
         case .zones: return "map"
         case .restaurants: return "fork.knife"
         case .account: return "person.crop.circle"
@@ -32,7 +34,7 @@ enum AppSection: String, CaseIterable, Identifiable {
     }
 
     /// Main destinations above the divider; the rest below it (like DoorDash's Messages/Help).
-    static let main: [AppSection] = [.home, .offers, .earnings, .breakdown, .zones, .restaurants, .account]
+    static let main: [AppSection] = [.home, .offers, .earnings, .breakdown, .planner, .zones, .restaurants, .account]
 }
 
 @MainActor
@@ -49,6 +51,8 @@ final class MenuState: ObservableObject {
         case 3: section = .account
         case 4: isOpen = true
         case 5: section = .breakdown
+        case 6: section = .planner
+        case 7: section = .zones
         default: break
         }
     }

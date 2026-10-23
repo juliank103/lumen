@@ -40,6 +40,6 @@ final class HomeStates: XCTestCase {
         capture("order")
         capture("orderOffer", name: "order-with-offer")
         capture("order", name: "order-options-menu", tap: "Order options")
-        for (tab, name) in [(1, "offers"), (2, "earnings"), (5, "breakdown")] { capture("waiting", extra: ["-tab", String(tab)], name: name) }
+        for (tab, name) in [(1, "offers"), (2, "earnings"), (5, "breakdown"), (6, "planner"), (7, "zones")] { capture("waiting", extra: ["-tab", String(tab)], name: name) }
     }
 }

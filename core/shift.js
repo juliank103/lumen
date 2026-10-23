@@ -684,6 +684,19 @@
     const now = valid(ms(input.now)) ? ms(input.now) : Date.now();
     const offset = input.offsetMinutes || 0, part = input.part || 'all', days = input.days || 'all';
     const places = input.places || {};
+    // "Now" (user, Oct 23: "at 3:00pm on Friday it shows me the usual hot zones for 3pm on Friday"): this weekday within
+    // an hour of the time now; with under 15 such offers, the same time (±90 min) on all weekdays or all weekend days.
+    let matches = at => partMatches(at, offset, part, days), scope = null;
+    if (part === 'now') {
+      const here = localMinute(new Date(now).toISOString(), offset);
+      const weekendDay = l => l.weekday === 0 || l.weekday === 6 || (l.weekday === 5 && l.minuteOfDay >= 930);
+      const near = (l, span) => { const d = Math.abs(l.minuteOfDay - here.minuteOfDay); return Math.min(d, 1440 - d) <= span; };
+      const narrow = at => { const l = localMinute(at, offset); return !!l && l.weekday === here.weekday && near(l, 60); };
+      const wide = at => { const l = localMinute(at, offset); return !!l && weekendDay(l) === weekendDay(here) && near(l, 90); };
+      const enough = (input.offers || []).filter(o => narrow(o.seenAt)).length >= 15;
+      matches = enough ? narrow : wide;
+      scope = enough ? 'day' : weekendDay(here) ? 'weekend' : 'weekdays';
+    }
     const byId = {};
     for (const r of db.restaurants) byId[r.id] = r;
     const located = id => {
@@ -696,7 +709,7 @@
     const points = [], perRestaurant = {}, unplaced = {};
     let counted = 0, good = 0, fromSpots = 0, placed = 0;
     for (const o of input.offers || []) {
-      if (!partMatches(o.seenAt, offset, part, days)) continue;
+      if (!matches(o.seenAt)) continue;
       const w = offerWorth(o, now, input.targetHourlyCents);
       counted++; if (w.good) good++;
       const names = (o.merchants && o.merchants.length ? o.merchants : o.merchant ? [o.merchant] : []).filter(n => normalizeName(n));
@@ -721,7 +734,7 @@
     for (const sh of input.shifts || []) {
       const a = ms(sh.startedAt), b = valid(ms(sh.endedAt)) ? ms(sh.endedAt) : now;
       if (!valid(a) || b <= a || b - a > 24 * 3600000) continue;
-      for (let t = a; t < b; t += 5 * 60000) if (partMatches(new Date(t).toISOString(), offset, part, days)) minutes += 5;
+      for (let t = a; t < b; t += 5 * 60000) if (matches(new Date(t).toISOString())) minutes += 5;
     }
     const hours = minutes / 60;
     const restaurants = Object.keys(perRestaurant).map(id => {
@@ -730,7 +743,7 @@
         good: perRestaurant[id].good } : null;
     }).filter(Boolean).sort((a, b) => b.offers - a.offers);
     // Confidence from the offers the map could place (a restaurant position or a waiting spot).
-    const result = { part, days, offers: counted, goodOffers: good, placedOffers: placed, fromSpots, hours: Math.round(hours * 10) / 10,
+    const result = { part, days, scope, offers: counted, goodOffers: good, placedOffers: placed, fromSpots, hours: Math.round(hours * 10) / 10,
       confidence: placed < 20 ? 'early' : placed < 80 ? 'building' : 'solid', cellMiles: null, cells: [], zones: [], restaurants,
       unplaced: Object.keys(unplaced).sort((a, b) => unplaced[b] - unplaced[a]) };
     if (!points.length) return result;
@@ -1088,15 +1101,71 @@
     return { mix, grid, perMile, payoff, restaurants };
   }
 
+  /* Shift planner (user, Oct 23): "To make $X this week, work these hours." Each weekday-hour's $/hr from history (pay of
+   * orders accepted in that hour ÷ online hours in it, pulled toward the overall $/hr until there are a few hours of
+   * history), then the best hours left this week — only hours of the day the driver has worked before — until the expected
+   * pay covers what's left of the target, grouped into blocks.
+   * input: { trips, shifts, entries, offsetMinutes, now, week: { start, end }, targetCents }
+   * Returns { targetCents, earnedCents, remainingCents, hours, expectedCents, reachable, historyHours, overallHourlyCents,
+   *           blocks: [{ start, end, hours, expectedCents, hourlyCents }] } */
+  function shiftPlan(input) {
+    const off = input.offsetMinutes || 0, now = valid(ms(input.now)) ? ms(input.now) : Date.now();
+    const hourMs = 3600000, cellOf = t => { const l = localMinute(new Date(t).toISOString(), off); return l.weekday * 24 + Math.floor(l.minuteOfDay / 60); };
+    const pay = new Array(168).fill(0), minutes = new Array(168).fill(0), hourWorked = new Array(24).fill(0);
+    for (const sh of input.shifts || []) {
+      const a = ms(sh.startedAt), b = valid(ms(sh.endedAt)) ? ms(sh.endedAt) : now;
+      if (!valid(a) || b <= a || b - a > 24 * hourMs) continue;
+      for (let t = a; t < b; t += 5 * 60000) { const c = cellOf(t); minutes[c] += 5; hourWorked[c % 24] += 5; }
+    }
+    for (const o of ordersOf(input.trips)) {
+      if (o.ended !== 'completed' || !valid(ms(o.acceptedAt))) continue;
+      pay[cellOf(ms(o.acceptedAt))] += o.payCents || 0;
+    }
+    const totalMinutes = minutes.reduce((a, b) => a + b, 0), totalPay = pay.reduce((a, b) => a + b, 0);
+    const overall = totalMinutes >= 60 ? totalPay * 60 / totalMinutes : null;
+    const week = input.week || {}, ws = ms(week.start), we = ms(week.end);
+    const earned = valid(ws) ? rangeMetrics(input, week.start, new Date(Math.min(now, we)).toISOString()).earningsCents : 0;
+    const target = valid(input.targetCents) && input.targetCents > 0 ? input.targetCents : null;
+    const out = { targetCents: target, earnedCents: earned, remainingCents: target === null ? null : Math.max(0, target - earned),
+      hours: 0, expectedCents: 0, reachable: true, historyHours: Math.round(totalMinutes / 6) / 10,
+      overallHourlyCents: overall === null ? null : Math.round(overall), blocks: [] };
+    if (target === null || overall === null || !valid(we) || out.remainingCents === 0) return out;
+    // Expected $/hr per cell, with one hour at the overall rate mixed in so a single lucky hour doesn't dominate.
+    const rate = c => (pay[c] + overall) / (minutes[c] / 60 + 1);
+    const candidates = [];
+    for (let t = Math.ceil(now / hourMs) * hourMs; t + hourMs <= we; t += hourMs) {
+      const c = cellOf(t);
+      if (hourWorked[c % 24] < 60) continue; // Never suggest an hour of the day you've never driven.
+      candidates.push({ t, rate: rate(c) });
+    }
+    candidates.sort((a, b) => b.rate - a.rate || a.t - b.t);
+    const chosen = [];
+    let expected = 0;
+    for (const x of candidates) {
+      if (expected >= out.remainingCents || chosen.length >= 70) break;
+      chosen.push(x); expected += x.rate;
+    }
+    out.reachable = expected >= out.remainingCents;
+    out.hours = chosen.length; out.expectedCents = Math.round(expected);
+    chosen.sort((a, b) => a.t - b.t);
+    for (const x of chosen) {
+      const last = out.blocks[out.blocks.length - 1];
+      if (last && ms(last.end) === x.t) { last.end = new Date(x.t + hourMs).toISOString(); last.hours++; last.expectedCents += x.rate; }
+      else out.blocks.push({ start: new Date(x.t).toISOString(), end: new Date(x.t + hourMs).toISOString(), hours: 1, expectedCents: x.rate });
+    }
+    for (const b of out.blocks) { b.expectedCents = Math.round(b.expectedCents); b.hourlyCents = Math.round(b.expectedCents / b.hours); }
+    return out;
+  }
+
   const json = f => (...args) => JSON.stringify(f(...args.map(a => (typeof a === 'string' ? JSON.parse(a) : a))));
   const api = { METERS_PER_MILE, SAME_PLACE_MILES, normalizeName, similarity, distanceMiles, emptyDb, matchRestaurant, updateRestaurants,
     mergeRestaurants, renameRestaurant, mergeSuggestions, storeVisits, restaurantStats, mealPeriod, shiftMetrics, toCSV, exportTables,
-    rangeMetrics, weekStats, dayPart, dominantPart, DAY_PARTS, zoneHeat, offerWorth, parseGridwise, parseCSV, goalStatus, goals, readerHealth, breakdown, verdictOf,
+    rangeMetrics, weekStats, dayPart, dominantPart, DAY_PARTS, zoneHeat, offerWorth, parseGridwise, parseCSV, goalStatus, goals, readerHealth, breakdown, verdictOf, shiftPlan,
     // JSON bridges for the iPhone (every argument is JSON text).
     updateRestaurantsJSON: json(updateRestaurants), mergeRestaurantsJSON: json(mergeRestaurants), renameRestaurantJSON: json(renameRestaurant),
     mergeSuggestionsJSON: json(mergeSuggestions), restaurantStatsJSON: json(restaurantStats), shiftMetricsJSON: json(shiftMetrics),
     exportTablesJSON: json(exportTables), weekStatsJSON: json(weekStats), zoneHeatJSON: json(zoneHeat), parseGridwiseJSON: json(parseGridwise), goalsJSON: json(goals), readerHealthJSON: json(readerHealth),
-    breakdownJSON: json(breakdown) };
+    breakdownJSON: json(breakdown), shiftPlanJSON: json(shiftPlan) };
   root.Shift = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
