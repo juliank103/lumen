@@ -56,6 +56,15 @@ final class SampleHandler: RPBroadcastSampleHandler {
 
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
         Signal.started.post()
+        // End shift in the app also stops screen reading (user, Oct 23: ending the shift but forgetting the reader
+        // started a new shift right away).
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), Unmanaged.passUnretained(self).toOpaque(),
+            { _, observer, _, _, _ in
+                guard let observer else { return }
+                let handler = Unmanaged<SampleHandler>.fromOpaque(observer).takeUnretainedValue()
+                handler.finishBroadcastWithError(NSError(domain: "Lumen", code: 1,
+                                                         userInfo: [NSLocalizedDescriptionKey: "Shift ended. __APP_NAME__ stopped reading offers."]))
+            }, Signal.stopReading.name as CFString, nil, .deliverImmediately)
         NotificationActions.register()
         // Posted before any heavy work, so it arrives even if the extension is terminated later.
         notify(id: "broadcast-started", title: "__APP_NAME__ is reading offers",
@@ -95,6 +104,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
     override func broadcastPaused() { changeState("paused", active: false) }
     override func broadcastResumed() { changeState("observing", active: true) }
     override func broadcastFinished() {
+        CFNotificationCenterRemoveEveryObserver(CFNotificationCenterGetDarwinNotifyCenter(), Unmanaged.passUnretained(self).toOpaque())
         Signal.finished.post()
         router.stopLocation()
         creditTimer?.cancel(); creditTimer = nil

@@ -105,7 +105,7 @@ struct Trip: Codable, Identifiable, Equatable {
         let offerId: String
         var stop: Int
         let label: String
-        let at: Date
+        var at: Date
         /// Store arrivals only: the phone's position there (a business location, for the restaurant list). Never set for
         /// drop-offs (customer locations are not stored).
         var latitude: Double? = nil
@@ -272,9 +272,29 @@ final class TripStore: ObservableObject {
     /// A step, tapped by the driver (`auto` false) or detected from the phone's position (`auto` true).
     /// `source` for automatic steps: "auto_location" (GPS), "screen" (seen in the delivery app), or "screen_inferred"
     /// (a step skipped on screen, filled in; low confidence so learning ignores its timing).
+    /// Automatic steps must make sense in order (user, Oct 23): you're at one store at a time, so no automatic arrival
+    /// at another store, or at a drop-off, until you've left the store you're at (Oct 22: Raising Cane's was marked
+    /// arrived 26 seconds after Mendocino Farms). Stacked orders from the same store count as one store. Taps aren't
+    /// checked: the driver knows.
+    static func inOrder(_ action: TripAction, _ trip: Trip) -> Bool {
+        guard action.kind == .arrivedStore || action.kind == .arrivedDropoff else { return true }
+        let storeName = { (offerId: String, stop: Int) -> String? in
+            trip.orders.first { $0.offerId == offerId }.flatMap { $0.stores.indices.contains(stop) ? $0.stores[stop] : nil }
+        }
+        let here = trip.steps.filter { s in s.kind == .arrivedStore && !trip.has(.leftStore, s.offerId, s.stop) }
+            .map { storeName($0.offerId, $0.stop) }
+        guard !here.isEmpty else { return true }
+        if action.kind == .arrivedDropoff { return false }
+        let target = storeName(action.offerId, action.stop)?.lowercased()
+        return here.allSatisfy { $0?.lowercased() == target }
+    }
+
     func perform(_ action: TripAction, at now: Date = Date(), auto: Bool = false, source: String? = nil) {
         guard var trip = active, trip.actions.contains(action),
               let index = trip.orders.firstIndex(where: { $0.offerId == action.offerId }) else { return }
+        if auto, !Self.inOrder(action, trip) { return }
+        // Never before the trip's last step (a late screen or GPS fix can carry an older time).
+        let now = max(now, trip.steps.map(\.at).max() ?? now)
         let before = active, historyCount = history.count
         let types: [Trip.StepKind: String] = [.arrivedStore: "arrived_pickup", .leftStore: "picked_up",
                                               .arrivedDropoff: "arrived_customer", .delivered: "delivered"]
@@ -454,8 +474,10 @@ final class TripStore: ObservableObject {
     /// index in the saved order (nil = added); removed pickups lose their store steps and the rest are renumbered.
     /// `dropoffs` never goes below those already reached; set to the number delivered, an order in progress completes.
     /// Edits to the current order can be undone; the trip ends if the edit finished its last order.
+    /// `stepTimes`: step id → its corrected time, or nil to remove the step (user, Oct 23: fixing a finished order's
+    /// stops — Raising Cane's was marked arrived and left before the driver got there, skewing waits and times).
     func editOrder(_ offerId: String, platform: String, payCents: Int, ended: String?, acceptedAt: Date, endedAt: Date?,
-                   storeEdits: [(from: Int?, name: String)], dropoffs: Int, at now: Date = Date()) {
+                   storeEdits: [(from: Int?, name: String)], dropoffs: Int, stepTimes: [String: Date?] = [:], at now: Date = Date()) {
         let names = storeEdits.enumerated().map { index, edit -> String in
             let name = edit.name.trimmingCharacters(in: .whitespaces)
             return name.isEmpty ? "Store \(index + 1)" : name
@@ -476,6 +498,21 @@ final class TripStore: ObservableObject {
             }
             order.platform = platform
             order.acceptedAt = min(acceptedAt, now)
+            var stepEvents: [[String: Any]] = []
+            trip.steps = trip.steps.compactMap { step in
+                guard step.offerId == offerId, let change = stepTimes[step.id] else { return step }
+                guard let at = change else {
+                    stepEvents.append(event("retracted", offerId, now, trip.id, ["target": step.id, "source": "manual"]))
+                    return nil
+                }
+                var step = step
+                step.at = min(now, at)
+                step.auto = nil
+                stepEvents.append(event("step_edited", offerId, now, trip.id,
+                                        ["target": step.id, "at": Self.localFormatter.string(from: step.at), "source": "manual"]))
+                return step
+            }
+            if !stepEvents.isEmpty { OfferJournal.appendEvents(stepEvents) }
             if let ended, order.ended != nil {
                 order.ended = ended
                 order.endedAt = min(now, max(endedAt ?? order.acceptedAt, order.acceptedAt.addingTimeInterval(60)))
@@ -523,9 +560,6 @@ final class TripStore: ObservableObject {
         ShiftStore.shared.refreshMetrics()
     }
 
-    /// Removes an order (a mistaken accept, or one the driver doesn't want in their history): its steps go too, and a
-    /// trip left empty is removed. The journal keeps a "deleted" event so learning ignores the order. On the active trip
-    /// this can be undone.
     /// Orders removed with "Remove this order" in the last hour: offer id → (app, store codes, when). Screens never
     /// accept them again (user, Oct 22 shift).
     private var removed: [String: (platform: String, stores: Set<Int>, at: Date)] = [:]
@@ -539,6 +573,9 @@ final class TripStore: ObservableObject {
             .reduce(into: Set<Int>()) { $0.formUnion($1.stores) }
     }
 
+    /// Removes an order (a mistaken accept, or one the driver doesn't want in their history): its steps go too, and a
+    /// trip left empty is removed. The journal keeps a "deleted" event so learning ignores the order. On the active trip
+    /// this can be undone.
     func deleteOrder(_ offerId: String, at now: Date = Date()) {
         if let order = trip(for: offerId)?.orders.first(where: { $0.offerId == offerId }) {
             removed[offerId] = (order.platform, LifecycleSignal.storeCodes(order.stores + [order.merchant].compactMap { $0 }), now)

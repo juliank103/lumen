@@ -2,6 +2,19 @@ import SwiftUI
 
 struct OrderEditTarget: Identifiable { let offerId: String; var id: String { offerId } }
 
+/// One recorded step in the editor: its time, or removed.
+struct StepEdit: Identifiable, Equatable {
+    let id: String
+    let kind: Trip.StepKind
+    let stop: Int
+    let label: String
+    let original: Date
+    var at: Date
+    var removed = false
+    /// Arrival and leaving at one stop go together when a stop is removed.
+    var pair: String { (kind == .arrivedStore || kind == .leftStore ? "s" : "d") + "\(stop)" }
+}
+
 /// One pickup in the editor: where it came from in the saved order (nil = added here) and its name.
 struct StoreEdit: Identifiable, Equatable {
     let id = UUID()
@@ -27,6 +40,7 @@ struct OrderEditor: View {
     @State private var delivered = 0
     @State private var finished = false
     @State private var loaded = false
+    @State private var steps: [StepEdit] = []
     /// The stored outcome ("cancelled by customer"), kept when the picker isn't changed.
     @State private var originalOutcome: String?
 
@@ -89,6 +103,27 @@ struct OrderEditor: View {
                         Text("\(delivered) delivered so far." + (dropoffs == delivered ? " Saving completes the order." : ""))
                     }
                 }
+                // Each stop's times, fixable after the order too (user, Oct 23); "Remove" for a stop never reached.
+                if steps.contains(where: { !$0.removed }) {
+                    Section {
+                        ForEach($steps) { $step in
+                            if !step.removed {
+                                DatePicker(step.label, selection: $step.at, in: acceptedAt...Date(), displayedComponents: [.hourAndMinute])
+                            }
+                        }
+                        Menu {
+                            ForEach(stopNames, id: \.pair) { stop in
+                                Button(stop.name, role: .destructive) {
+                                    for i in steps.indices where steps[i].pair == stop.pair { steps[i].removed = true }
+                                }
+                            }
+                        } label: {
+                            Label("Remove a stop I didn't reach", systemImage: "minus.circle").foregroundStyle(.red)
+                        }
+                    } header: {
+                        Text("Stops")
+                    }
+                }
                 Section {
                     DatePicker("Accepted", selection: $acceptedAt, in: ...Date())
                     if finished {
@@ -109,7 +144,8 @@ struct OrderEditor: View {
                         TripStore.shared.editOrder(offerId, platform: platform, payCents: cents ?? 0,
                                                    ended: finished ? (outcome == picked(originalOutcome) ? originalOutcome : outcome) : nil,
                                                    acceptedAt: acceptedAt, endedAt: finished ? endedAt : nil,
-                                                   storeEdits: stores.map { ($0.from, $0.name) }, dropoffs: dropoffs)
+                                                   storeEdits: stores.map { ($0.from, $0.name) }, dropoffs: dropoffs,
+                                                   stepTimes: stepTimes)
                         dismiss()
                     }
                     .disabled(cents == nil || stores.isEmpty)
@@ -118,6 +154,29 @@ struct OrderEditor: View {
             .sensoryFeedback(.selection, trigger: stores.map(\.id))
             .onAppear(perform: load)
         }
+    }
+
+    /// Changed steps: new time, or nil when removed.
+    private var stepTimes: [String: Date?] {
+        var changes: [String: Date?] = [:]
+        for step in steps {
+            if step.removed { changes[step.id] = .some(nil) }
+            else if abs(step.at.timeIntervalSince(step.original)) >= 1 { changes[step.id] = .some(step.at) }
+        }
+        return changes
+    }
+
+    /// One entry per stop with steps left, for "Remove a stop".
+    private var stopNames: [(pair: String, name: String)] {
+        var seen: [String] = []
+        var list: [(pair: String, name: String)] = []
+        for step in steps where !step.removed && !seen.contains(step.pair) {
+            seen.append(step.pair)
+            let isStore = step.kind == .arrivedStore || step.kind == .leftStore
+            let store = stores.indices.contains(step.stop) && !stores[step.stop].name.isEmpty ? stores[step.stop].name : "Store \(step.stop + 1)"
+            list.append((step.pair, isStore ? store : (dropoffs > 1 ? "Drop-off \(step.stop + 1)" : "Drop-off")))
+        }
+        return list
     }
 
     private var cents: Int? {
@@ -145,6 +204,8 @@ struct OrderEditor: View {
         // Placeholder names ("Store 2") start empty so the field shows the restaurant search.
         stores = order.stores.enumerated().map { StoreEdit(from: $0.offset, name: $0.element.hasPrefix("Store ") ? "" : $0.element) }
         dropoffs = order.dropoffs
+        steps = trip.steps.filter { $0.offerId == offerId }.sorted { $0.at < $1.at }
+            .map { StepEdit(id: $0.id, kind: $0.kind, stop: $0.stop, label: $0.label, original: $0.at, at: $0.at) }
         delivered = trip.count(.delivered, offerId)
         minimumDropoffs = max(1, trip.count(.arrivedDropoff, offerId), delivered)
     }

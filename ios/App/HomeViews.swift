@@ -169,7 +169,9 @@ struct HomeWaiting: View {
                 }
                 .foregroundStyle(Theme.neonRed)
                 .confirmationDialog("End this shift?", isPresented: $confirmEnd) {
-                    Button("End shift", role: .destructive) { shifts.end() }
+                    Button("End shift", role: .destructive) { shifts.endByDriver() }
+                } message: {
+                    Text("Also stops reading offers.")
                 }
             }
         }

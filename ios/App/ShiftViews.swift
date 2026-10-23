@@ -66,7 +66,7 @@ struct ShiftSummaryCard: View {
             .dasherCard()
             .goalEditor(isPresented: $editingGoal)
             .confirmationDialog("End this shift?", isPresented: $confirmEnd) {
-                Button("End shift", role: .destructive) { shifts.end() }
+                Button("End shift", role: .destructive) { shifts.endByDriver() }
             } message: {
                 Text("Its time and miles stop counting. Screen reading stays on until you stop it.")
             }
@@ -242,7 +242,7 @@ struct ShiftEditor: View {
                     Button("Save") {
                         if let shift {
                             shifts.updateShift(shift.id, start: start, end: isRunning ? nil : end)
-                            if isRunning && endRunning { shifts.end(at: end, exact: true) }
+                            if isRunning && endRunning { shifts.endByDriver(at: end, exact: true) }
                             if !isRunning, orderMilesText != initialOrderMiles || otherMilesText != initialOtherMiles {
                                 shifts.setMiles(shift.id, orderMiles: miles(orderMilesText), otherMiles: miles(otherMilesText))
                             }

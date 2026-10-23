@@ -4,7 +4,8 @@ import Foundation
 // alive even when the install has no shared container (free Apple ID via Sideloadly) or notifications are off.
 enum Signal: String, CaseIterable {
     // `selfTest` is posted by the app itself to prove the signal path works on this phone.
-    case selfTest, loaded, started, frame, offer, readerFailed, finished
+    // `stopReading` goes the other way: the app asks the reader to end the screen broadcast (End shift, Oct 23).
+    case selfTest, loaded, started, frame, offer, readerFailed, finished, stopReading
 
     var name: String { "com.juliank103.mellodycopilot.signal." + rawValue }
 

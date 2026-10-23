@@ -115,7 +115,7 @@ struct StatsTab: View {
             .sensoryFeedback(.selection, trigger: chartByApp)
             .sensoryFeedback(.selection, trigger: metric)
             .confirmationDialog("End this shift?", isPresented: $confirmEnd) {
-                Button("End shift", role: .destructive) { shifts.end() }
+                Button("End shift", role: .destructive) { shifts.endByDriver() }
             } message: {
                 Text("It also ends by itself 30 minutes after offer reading stops with no trip running.")
             }

@@ -46,12 +46,13 @@ final class ExtensionSignals: ObservableObject {
         case .loaded: loadedAt = now
         case .started:
             startedAt = now; finishedAt = nil; readerFailed = false
-            MainActor.assumeIsolated { ShiftStore.shared.startIfNeeded() }
+            MainActor.assumeIsolated { ShiftStore.shared.readingStarted() }
         case .frame: frames += 1; lastFrameAt = now
         case .offer:
             offers += 1
             NotificationCenter.default.post(name: Self.offerReceived, object: nil)
         case .readerFailed: readerFailed = true
+        case .stopReading: break   // Sent by the app itself.
         case .finished:
             finishedAt = now
             MainActor.assumeIsolated {

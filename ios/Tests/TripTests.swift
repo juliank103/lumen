@@ -146,6 +146,24 @@ final class TripTests: XCTestCase {
         XCTAssertNil(detector.next(at: at(39.8580, -98.5401, seconds: 1200), trip: trip, storeSpots: [:], dropoffs: false))
     }
 
+    @MainActor
+    func testAutomaticStepsStayInOrder() {
+        var trip = Trip(id: "t", startedAt: t0, orders: [order("a", stores: ["Mendocino Farms", "Raising Cane's"], dropoffs: 2)], steps: [], endedAt: nil)
+        trip.steps.append(step(.arrivedStore, "a", 0, 1))
+        let cane = TripAction(kind: .arrivedStore, offerId: "a", stop: 1, label: "")
+        let drop = TripAction(kind: .arrivedDropoff, offerId: "a", stop: 0, label: "")
+        // Still at Mendocino Farms: no automatic arrival at Raising Cane's or a drop-off.
+        XCTAssertFalse(TripStore.inOrder(cane, trip))
+        XCTAssertFalse(TripStore.inOrder(drop, trip))
+        trip.steps.append(step(.leftStore, "a", 0, 6))
+        XCTAssertTrue(TripStore.inOrder(cane, trip))
+        XCTAssertTrue(TripStore.inOrder(drop, trip))
+        // Two stacked orders from the same store: arriving for the second is fine.
+        var stacked = Trip(id: "s", startedAt: t0, orders: [order("x", stores: ["Chipotle"]), order("y", stores: ["Chipotle"])], steps: [], endedAt: nil)
+        stacked.steps.append(step(.arrivedStore, "x", 0, 1))
+        XCTAssertTrue(TripStore.inOrder(TripAction(kind: .arrivedStore, offerId: "y", stop: 0, label: ""), stacked))
+    }
+
     func testAnUndoneStepIsNotRepeatedRightAway() {
         var detector = ArrivalDetector()
         var trip = Trip(id: "t", startedAt: t0, orders: [order("a", stores: ["Five Guys"])], steps: [], endedAt: nil)

@@ -66,8 +66,18 @@ final class ShiftStore: ObservableObject {
 
     // MARK: Lifecycle
 
+    /// Set by End shift until screen reading starts again: offers still arriving from a reader that didn't stop don't
+    /// start a new shift (user, Oct 23: a 2-minute shift after every End shift).
+    private var endedByDriver = false
+
+    /// A new screen broadcast: a new shift may start.
+    func readingStarted(at now: Date = Date()) {
+        endedByDriver = false
+        startIfNeeded(at: now)
+    }
+
     func startIfNeeded(at now: Date = Date()) {
-        guard !PreviewData.isActive else { return }
+        guard !PreviewData.isActive, !endedByDriver else { return }
         finalizeIfExpired(now)
         if var shift = current {
             if shift.pausedAt != nil {
@@ -86,6 +96,13 @@ final class ShiftStore: ObservableObject {
         save(force: true)
         refreshMetrics()
         TripActivityController.update(TripStore.shared.active) // The shift's Live Activity (Dynamic Island).
+    }
+
+    /// End shift (the driver's button): ends the shift and stops screen reading in one step (user, Oct 23).
+    func endByDriver(at now: Date = Date(), exact: Bool = false) {
+        end(at: now, exact: exact)
+        endedByDriver = true
+        Signal.stopReading.post()
     }
 
     /// `exact`: end at `now` as given (the driver set the end time), not at the pause.
