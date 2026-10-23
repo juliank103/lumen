@@ -362,7 +362,7 @@ struct UndoButton: View {
         if let label {
             Button { store.undo() } label: {
                 Image(systemName: "arrow.uturn.backward").font(.body.weight(.bold)).foregroundStyle(Theme.purple)
-                    .frame(width: 44, height: 44)
+                    .frame(width: 36, height: 44)
             }
             .sensoryFeedback(.impact, trigger: store.undoLabel)
             .accessibilityLabel("Undo " + label)
@@ -414,6 +414,7 @@ struct HomeTripCard: View {
                     AppLogo(platform: orders[0].platform, size: multiApp ? 26 : 34)
                     Text(TripFormat.dollars(orders.reduce(0) { $0 + $1.payCents }))
                         .font(.system(size: multiApp ? 22 : 28, weight: .heavy, design: .rounded))
+                        .lineLimit(1).fixedSize()   // Never wraps; the store names shorten instead (screens, Oct 23: "$19.3 / 5").
                     if orders.count > 1 || multiApp {
                         Text(orders.flatMap(\.stores).joined(separator: " + ")).font(.subheadline).foregroundStyle(Theme.secondaryText).lineLimit(1)
                     }
