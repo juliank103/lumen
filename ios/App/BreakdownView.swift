@@ -169,27 +169,8 @@ struct BreakdownView: View {
     }
 
     private func perMileCard(_ spread: Breakdown.PerMile) -> some View {
-        let rate = model.rules.centsPerMile
-        return card("$/mi with the drive back") {
-            Chart(spread.buckets, id: \.from) { bucket in
-                // Explicit start and end: a bar on a number axis has no width of its own (screens, Oct 23: no bars).
-                BarMark(xStart: .value("From", Double(bucket.from) / 100 + 0.005), xEnd: .value("To", Double(bucket.from + 10) / 100 - 0.005),
-                        yStart: .value("None", 0), yEnd: .value("Offers", bucket.count))
-                    .foregroundStyle(bucket.from >= rate ? Theme.neonGreen : Theme.secondaryText.opacity(0.45))
-                RuleMark(x: .value("Your rate", Double(rate) / 100))
-                    .foregroundStyle(Theme.purple).lineStyle(StrokeStyle(lineWidth: 2, dash: [4, 3]))
-            }
-            .chartXScale(domain: 0...2.1)
-            .chartXAxis {
-                AxisMarks(values: [0, 0.5, 1, 1.5, 2]) { value in
-                    AxisGridLine().foregroundStyle(Theme.track)
-                    AxisValueLabel(anchor: .top) {
-                        if let v = value.as(Double.self) { Text(v >= 2 ? "$2+" : String(format: "$%.2f", v)) }
-                    }
-                }
-            }
-            .chartYAxis(.hidden)
-            .frame(height: 140)
+        card("$/mi with the drive back") {
+            PerMileChart(buckets: spread.buckets, rate: model.rules.centsPerMile)
             HStack {
                 if let median = spread.median { stat(String(format: "$%.2f", Double(median) / 100), "middle offer") }
                 stat(percent(spread.atOrAbove, of: spread.total), "at \(model.rules.perMileText)+")
@@ -287,4 +268,43 @@ struct BreakdownView: View {
         let result = ShiftEngine.decode(Breakdown.self, ShiftEngine.call("breakdownJSON", [input]))
         if result != data { data = result }
     }
+}
+
+/// The $/mi histogram on its own, with the values worked out first (the compiler timed out on it inline, Oct 23).
+struct PerMileChart: View {
+    struct Bar: Identifiable { let id: Int; let low: Double; let high: Double; let count: Int; let meets: Bool }
+    let bars: [Bar]
+    let rate: Double
+
+    init(buckets: [Breakdown.Bucket], rate: Int) {
+        // Explicit start and end and a zero base: a bar on a number axis has neither of its own (screens, Oct 23).
+        bars = buckets.map { b in
+            Bar(id: b.from, low: Double(b.from) / 100 + 0.005, high: Double(b.from + 10) / 100 - 0.005, count: b.count, meets: b.from >= rate)
+        }
+        self.rate = Double(rate) / 100
+    }
+
+    var body: some View {
+        Chart {
+            ForEach(bars) { bar in
+                BarMark(xStart: .value("From", bar.low), xEnd: .value("To", bar.high),
+                        yStart: .value("Base", 0), yEnd: .value("Offers", bar.count))
+                    .foregroundStyle(bar.meets ? Theme.neonGreen : Theme.secondaryText.opacity(0.45))
+            }
+            RuleMark(x: .value("Your rate", rate))
+                .foregroundStyle(Theme.purple)
+                .lineStyle(StrokeStyle(lineWidth: 2, dash: [4, 3]))
+        }
+        .chartXScale(domain: 0.0...2.1)
+        .chartXAxis {
+            AxisMarks(values: [0.0, 0.5, 1.0, 1.5, 2.0]) { value in
+                AxisGridLine().foregroundStyle(Theme.track)
+                AxisValueLabel(anchor: .top) { Text(Self.label(value.as(Double.self) ?? 0)) }
+            }
+        }
+        .chartYAxis(.hidden)
+        .frame(height: 140)
+    }
+
+    private static func label(_ v: Double) -> String { v >= 2 ? "$2+" : String(format: "$%.2f", v) }
 }
