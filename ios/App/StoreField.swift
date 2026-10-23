@@ -2,20 +2,32 @@ import SwiftUI
 
 /// A store name typed by hand, with matches from the restaurant list as you type (user, Oct 15: "everywhere … you can
 /// manually input a restaurant should use our database"). Tapping a match fills the field; any other name still works.
-/// Used inside a Form: the field and its matches are separate rows.
-struct StoreField: View {
+/// Used inside a Form: the field and its matches are separate rows. Anything to show beside the field (the editor's ↑)
+/// goes in `accessory`, never around the whole thing, or the matches end up squeezed into the field's row (user, Oct 23).
+struct StoreField<Accessory: View>: View {
     let prompt: String
     @Binding var text: String
     /// The order's app: its stores come first.
     var platform: String? = nil
+    let accessory: Accessory
     @ObservedObject private var restaurants = RestaurantStore.shared
     @FocusState private var focused: Bool
 
+    init(prompt: String, text: Binding<String>, platform: String? = nil, @ViewBuilder accessory: () -> Accessory) {
+        self.prompt = prompt
+        _text = text
+        self.platform = platform
+        self.accessory = accessory()
+    }
+
     var body: some View {
-        TextField(prompt, text: $text)
-            .textInputAutocapitalization(.words)
-            .autocorrectionDisabled()
-            .focused($focused)
+        HStack {
+            TextField(prompt, text: $text)
+                .textInputAutocapitalization(.words)
+                .autocorrectionDisabled()
+                .focused($focused)
+            accessory
+        }
         if focused {
             ForEach(matches) { restaurant in
                 Button {
@@ -57,5 +69,11 @@ struct StoreField: View {
         }
         if !query.isEmpty, restaurants.restaurants.contains(where: { Self.fold($0.name) == query }) { return [] }
         return scored.sorted { $0.1 > $1.1 }.prefix(5).map(\.0)
+    }
+}
+
+extension StoreField where Accessory == EmptyView {
+    init(prompt: String, text: Binding<String>, platform: String? = nil) {
+        self.init(prompt: prompt, text: text, platform: platform) { EmptyView() }
     }
 }

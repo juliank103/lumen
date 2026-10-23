@@ -67,8 +67,7 @@ struct OrderEditor: View {
                 Section {
                     ForEach($stores) { $store in
                         let index = stores.firstIndex(where: { $0.id == store.id }) ?? 0
-                        HStack {
-                            StoreField(prompt: stores.count == 1 ? "Store" : "Store \(index + 1)", text: $store.name, platform: platform)
+                        StoreField(prompt: stores.count == 1 ? "Store" : "Store \(index + 1)", text: $store.name, platform: platform) {
                             // Put the pickups in the order they really happen (user, Oct 20).
                             if index > 0 {
                                 Button { withAnimation { stores.swapAt(index, index - 1) } } label: { Image(systemName: "arrow.up.circle") }
