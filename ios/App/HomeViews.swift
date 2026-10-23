@@ -234,7 +234,6 @@ struct HomeOnOrder: View {
                     }
                 }
             }
-            UndoToast(trip: trip)
         }
     }
 }
@@ -347,9 +346,10 @@ struct OrderOptionsContent: View {
     }
 }
 
-/// "✓ Left Shake Shack · Undo", always there on an order while something can be undone (user, Oct 22: "I don't want
-/// undo behind a menu"; it used to disappear after 10 seconds). Each tap takes back one more change.
-struct UndoToast: View {
+/// The undo symbol on the active order card (user, Oct 23: "just an undo symbol on the actual active order card";
+/// before that a bar under the step button, and before that a 10-second toast). There whenever this trip has a change to
+/// take back; each tap undoes one more. VoiceOver reads what it undoes.
+struct UndoButton: View {
     @ObservedObject private var store = TripStore.shared
     let trip: Trip
 
@@ -360,19 +360,12 @@ struct UndoToast: View {
 
     var body: some View {
         if let label {
-            HStack(spacing: 10) {
-                Image(systemName: "checkmark").font(.subheadline.weight(.black)).foregroundStyle(Theme.neonGreen)
-                Text(label).font(.subheadline.weight(.semibold)).lineLimit(1)
-                Spacer()
-                Button { store.undo() } label: {
-                    Label("Undo", systemImage: "arrow.uturn.backward").font(.subheadline.weight(.bold))
-                }
-                .frame(minWidth: 44, minHeight: 44)
-                .sensoryFeedback(.impact, trigger: store.undoLabel)
+            Button { store.undo() } label: {
+                Image(systemName: "arrow.uturn.backward").font(.body.weight(.bold)).foregroundStyle(Theme.purple)
+                    .frame(width: 44, height: 44)
             }
-            .padding(.leading, 16).padding(.trailing, 8)
-            .frame(height: 52)
-            .background(Theme.raised, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .sensoryFeedback(.impact, trigger: store.undoLabel)
+            .accessibilityLabel("Undo " + label)
         }
     }
 }
@@ -416,7 +409,7 @@ struct HomeTripCard: View {
         let groups = self.groups
         let multiApp = groups.count > 1
         VStack(alignment: .leading, spacing: 14) {
-            ForEach(Array(groups.enumerated()), id: \.offset) { _, orders in
+            ForEach(Array(groups.enumerated()), id: \.offset) { index, orders in
                 HStack(spacing: 10) {
                     AppLogo(platform: orders[0].platform, size: multiApp ? 26 : 34)
                     Text(TripFormat.dollars(orders.reduce(0) { $0 + $1.payCents }))
@@ -431,6 +424,8 @@ struct HomeTripCard: View {
                             Text("predicted").font(.caption).foregroundStyle(Theme.secondaryText)
                         }
                     }
+                    // Undo as a symbol on the card itself (user, Oct 23), next to ⋯ on the first row.
+                    if index == 0 { UndoButton(trip: trip) }
                     let open = orders.filter { $0.ended == nil }
                     if !open.isEmpty { OrderOptionsMenu(trip: trip, orders: open) }
                 }
