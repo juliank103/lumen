@@ -987,14 +987,116 @@
     return out;
   }
 
+  /* The Breakdown page (user, Oct 23): every offer ever, filtered by time of day, day of week and app.
+   * input: { offers, trips, restaurants (db), filters: { part: 'all' | DAY_PARTS key, weekdays: [0-6] (0 = Sunday, empty or
+   * missing = all), platform: 'all' | app }, offsetMinutes, centsPerMile }
+   * Returns:
+   *   mix: { accept, maybe, decline, unread, total } — the verdict each offer got (maybe = "Accept if…", close call, check).
+   *   grid: 7 × 24 cells { weekday, hour, offers, good } — when offers come and how many were worth it (app filter only:
+   *         the grid is itself the time view).
+   *   perMile: { buckets: [{ from, to, count }] in $0.10 steps from $0 to $2+, median, atOrAbove, total } — each offer's
+   *         $/mi counting the drive back, against the driver's rate.
+   *   payoff: { orders, predicted, actual, followed: {orders, actual}, against: {orders, actual} } — accepted orders that
+   *         finished: average predicted vs actual $/hr; "against" = taken although the verdict said Decline.
+   *   restaurants: { best, worst } — up to 5 each with 3+ offers: { name, offers, good, rate, waitMinutes }. */
+  function verdictOf(notice) {
+    const n = String(notice || '');
+    if (/· Accept( \(time unknown\))?$/.test(n)) return 'accept';
+    if (/· Decline$/.test(n)) return 'decline';
+    if (/^Accept if\b|· Close call$|^Check\b|Likely Accept/.test(n)) return 'maybe';
+    return 'unread';
+  }
+  function breakdown(input) {
+    const f = input.filters || {}, off = input.offsetMinutes || 0, rate = input.centsPerMile || 100;
+    const part = f.part || 'all', days = Array.isArray(f.weekdays) && f.weekdays.length ? f.weekdays : null;
+    const appOk = o => !f.platform || f.platform === 'all' || o.platform === f.platform;
+    const timeOk = o => {
+      const local = localMinute(o.seenAt, off);
+      if (!local) return false;
+      if (days && !days.includes(local.weekday)) return false;
+      return part === 'all' || dayPart(local.minuteOfDay).key === part;
+    };
+    const offers = (input.offers || []).filter(o => valid(o.payCents));
+    const chosen = offers.filter(o => appOk(o) && timeOk(o));
+
+    const mix = { accept: 0, maybe: 0, decline: 0, unread: 0, total: chosen.length };
+    for (const o of chosen) mix[verdictOf(o.notice)]++;
+
+    const grid = [];
+    for (let d = 0; d < 7; d++) for (let h = 0; h < 24; h++) grid.push({ weekday: d, hour: h, offers: 0, good: 0 });
+    for (const o of offers) {
+      if (!appOk(o)) continue;
+      const local = localMinute(o.seenAt, off);
+      if (!local) continue;
+      const cell = grid[local.weekday * 24 + Math.floor(local.minuteOfDay / 60)];
+      cell.offers++; if (verdictOf(o.notice) === 'accept') cell.good++;
+    }
+
+    const rates = [];
+    for (const o of chosen) {
+      const miles = valid(o.effectiveMilliMiles) ? o.effectiveMilliMiles
+        : valid(o.outboundMilliMiles) ? o.outboundMilliMiles + (valid(o.returnMilliMiles) ? o.returnMilliMiles : 0) : null;
+      if (miles && miles >= 500) rates.push(o.payCents * 1000 / miles);
+    }
+    rates.sort((a, b) => a - b);
+    const buckets = [];
+    for (let c = 0; c < 200; c += 10) buckets.push({ from: c, to: c + 10, count: 0 });
+    buckets.push({ from: 200, to: null, count: 0 });
+    for (const r of rates) buckets[Math.min(20, Math.floor(r / 10))].count++;
+    const perMile = { buckets, total: rates.length, atOrAbove: rates.filter(r => r >= rate).length,
+      median: rates.length ? Math.round(rates[Math.floor(rates.length / 2)]) : null };
+
+    const byOffer = {};
+    for (const o of offers) byOffer[o.offerId || o.id] = o;
+    const avg = list => (list.length ? Math.round(list.reduce((a, b) => a + b, 0) / list.length) : null);
+    const pred = [], act = [], followed = [], against = [];
+    for (const trip of input.trips || []) for (const order of trip.orders || []) {
+      const offer = byOffer[order.offerId];
+      if (!offer || !appOk(offer) || !timeOk(offer) || order.ended !== 'completed' || !order.endedAt) continue;
+      const seconds = (ms(order.endedAt) - ms(order.acceptedAt)) / 1000;
+      if (!(seconds >= 300)) continue;
+      const actual = order.payCents * 3600 / seconds;
+      act.push(actual);
+      if (valid(offer.hourlyCents)) pred.push(offer.hourlyCents);
+      (verdictOf(offer.notice) === 'decline' ? against : followed).push(actual);
+    }
+    const payoff = { orders: act.length, predicted: avg(pred), actual: avg(act),
+      followed: { orders: followed.length, actual: avg(followed) }, against: { orders: against.length, actual: avg(against) } };
+
+    const db = input.restaurants && input.restaurants.restaurants ? input.restaurants : null;
+    let restaurants = { best: [], worst: [] };
+    if (db) {
+      const waits = restaurantStats(db, input.trips || [], off);
+      const per = {};
+      for (const o of chosen) {
+        const names = (o.merchants && o.merchants.length ? o.merchants : o.merchant ? [o.merchant] : []);
+        for (const name of names) {
+          const id = matchRestaurant(db, name, null);
+          if (!id) continue;
+          const r = per[id] = per[id] || { id, offers: 0, good: 0 };
+          r.offers++; if (verdictOf(o.notice) === 'accept') r.good++;
+        }
+      }
+      const names = {};
+      for (const r of db.restaurants) names[r.id] = r.name;
+      const rows = Object.values(per).filter(r => r.offers >= 3).map(r => ({ name: names[r.id] || r.id, offers: r.offers, good: r.good,
+        rate: Math.round(r.good / r.offers * 100), waitMinutes: waits[r.id] ? waits[r.id].averageMinutes : null }));
+      const best = rows.slice().sort((a, b) => b.rate - a.rate || b.offers - a.offers).slice(0, 5);
+      const worst = rows.slice().sort((a, b) => a.rate - b.rate || b.offers - a.offers).filter(r => !best.includes(r)).slice(0, 5);
+      restaurants = { best, worst };
+    }
+    return { mix, grid, perMile, payoff, restaurants };
+  }
+
   const json = f => (...args) => JSON.stringify(f(...args.map(a => (typeof a === 'string' ? JSON.parse(a) : a))));
   const api = { METERS_PER_MILE, SAME_PLACE_MILES, normalizeName, similarity, distanceMiles, emptyDb, matchRestaurant, updateRestaurants,
     mergeRestaurants, renameRestaurant, mergeSuggestions, storeVisits, restaurantStats, mealPeriod, shiftMetrics, toCSV, exportTables,
-    rangeMetrics, weekStats, dayPart, dominantPart, DAY_PARTS, zoneHeat, offerWorth, parseGridwise, parseCSV, goalStatus, goals, readerHealth,
+    rangeMetrics, weekStats, dayPart, dominantPart, DAY_PARTS, zoneHeat, offerWorth, parseGridwise, parseCSV, goalStatus, goals, readerHealth, breakdown, verdictOf,
     // JSON bridges for the iPhone (every argument is JSON text).
     updateRestaurantsJSON: json(updateRestaurants), mergeRestaurantsJSON: json(mergeRestaurants), renameRestaurantJSON: json(renameRestaurant),
     mergeSuggestionsJSON: json(mergeSuggestions), restaurantStatsJSON: json(restaurantStats), shiftMetricsJSON: json(shiftMetrics),
-    exportTablesJSON: json(exportTables), weekStatsJSON: json(weekStats), zoneHeatJSON: json(zoneHeat), parseGridwiseJSON: json(parseGridwise), goalsJSON: json(goals), readerHealthJSON: json(readerHealth) };
+    exportTablesJSON: json(exportTables), weekStatsJSON: json(weekStats), zoneHeatJSON: json(zoneHeat), parseGridwiseJSON: json(parseGridwise), goalsJSON: json(goals), readerHealthJSON: json(readerHealth),
+    breakdownJSON: json(breakdown) };
   root.Shift = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

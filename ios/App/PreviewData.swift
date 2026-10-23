@@ -34,6 +34,32 @@ enum PreviewData {
         return Int(args[i + 1]) ?? 0
     }
 
+    /// Invented offers for the Breakdown screenshot: two weeks of afternoons and evenings across the three apps,
+    /// mostly declines, more good ones at lunch and dinner (deterministic, so screenshots compare build to build).
+    static let breakdownOffers: [LiveOffer] = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let apps = ["doordash", "uber_eats", "grubhub"]
+        let stores = ["Chipotle", "Five Guys", "Panera Bread", "Raising Cane's", "Olive Garden", "Shake Shack", "Five Guys", "Cafe Zupas"]
+        var seed: UInt64 = 7
+        func next(_ n: Int) -> Int { seed = seed &* 6364136223846793005 &+ 1442695040888963407; return Int((seed >> 33) % UInt64(n)) }
+        let start = Calendar.current.startOfDay(for: Date()).addingTimeInterval(-14 * 86400)
+        return (0..<160).compactMap { i in
+            let day = next(14), hour = [11, 12, 12, 13, 17, 18, 18, 19, 20, 21][next(10)]
+            let seen = start.addingTimeInterval(Double(day * 86400 + hour * 3600 + next(60) * 60))
+            let miles = 2000 + next(12000), meal = hour == 12 || hour == 18
+            let perMile = 45 + next(meal ? 110 : 80)
+            let pay = miles * perMile / 1000
+            let word = perMile >= 105 ? "Accept" : perMile >= 95 ? "Close call" : "Decline"
+            let object: [String: Any] = ["seenAt": ISO8601DateFormatter().string(from: seen), "platform": apps[next(3)], "payCents": pay,
+                                         "outboundMilliMiles": miles, "effectiveMilliMiles": miles, "merchant": stores[next(stores.count)],
+                                         "confidence": 0.97, "tone": "good", "notice": String(format: "$%.2f/mi · ", Double(perMile) / 100) + word,
+                                         "detail": "Sample", "headline": "Sample", "fingerprint": "b\(i)", "offerId": "preview-b\(i)"]
+            guard let data = try? JSONSerialization.data(withJSONObject: object) else { return nil }
+            return try? decoder.decode(LiveOffer.self, from: data)
+        }
+    }()
+
     /// An invented stacked trip for the screenshots: two DoorDash orders, first store done, waiting at the second.
     static let trip: Trip = {
         let now = Date()

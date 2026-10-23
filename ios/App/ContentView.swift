@@ -48,6 +48,7 @@ struct ContentView: View {
         case .home: DashTab()
         case .offers: OffersTab()
         case .earnings: StatsTab()
+        case .breakdown: BreakdownView()
         case .zones: ZonesView()
         case .restaurants: NavigationStack { RestaurantsView().menuButton() }
         case .account: AccountTab()
