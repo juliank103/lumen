@@ -314,9 +314,8 @@ struct OrderOptionsContent: View {
             }
             Button("Add a store") { store.adjust(order.offerId, addStore: true) }
             // Fixing a wrong step any time during the order (user, Oct 22: "there's no undo button for active orders").
-            if !reachedStops.isEmpty || store.canUndo {
+            if !reachedStops.isEmpty {
                 Divider()
-                if store.canUndo { Button("Undo last step") { store.undo() } }
                 ForEach(reachedStops, id: \.label) { stop in
                     Button("Not at \(stop.label) yet") { store.clearStop(order.offerId, store: stop.store, stop: stop.index) }
                 }
@@ -335,36 +334,27 @@ struct OrderOptionsContent: View {
     }
 }
 
-/// "✓ Left Shake Shack · Undo" for 10 seconds after a step (or an accept), whether tapped or automatic.
+/// "✓ Left Shake Shack · Undo", always there on an order while something can be undone (user, Oct 22: "I don't want
+/// undo behind a menu"; it used to disappear after 10 seconds). Each tap takes back one more change.
 struct UndoToast: View {
     @ObservedObject private var store = TripStore.shared
     let trip: Trip
 
-    private var last: (label: String, at: Date)? {
-        let step = trip.steps.max { $0.at < $1.at }.map { ($0.label, $0.at) }
-        let accepted = trip.orders.max { $0.acceptedAt < $1.acceptedAt }.map { ("Accepted · " + ($0.stores.first ?? Theme.appName($0.platform)), $0.acceptedAt) }
-        switch (step, accepted) {
-        case let (s?, a?): return s.1 > a.1 ? s : a
-        case let (s?, nil): return s
-        case let (nil, a?): return a
-        default: return nil
-        }
-    }
-
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            if store.canUndo, let last, context.date.timeIntervalSince(last.at) < 10 {
-                HStack(spacing: 10) {
-                    Image(systemName: "checkmark").font(.subheadline.weight(.black)).foregroundStyle(Theme.neonGreen)
-                    Text(last.label).font(.subheadline.weight(.semibold)).lineLimit(1)
-                    Spacer()
-                    Button("Undo") { store.undo() }.font(.subheadline.weight(.bold)).frame(minWidth: 44, minHeight: 44)
+        if let label = store.undoLabel {
+            HStack(spacing: 10) {
+                Image(systemName: "checkmark").font(.subheadline.weight(.black)).foregroundStyle(Theme.neonGreen)
+                Text(label).font(.subheadline.weight(.semibold)).lineLimit(1)
+                Spacer()
+                Button { store.undo() } label: {
+                    Label("Undo", systemImage: "arrow.uturn.backward").font(.subheadline.weight(.bold))
                 }
-                .padding(.leading, 16).padding(.trailing, 8)
-                .frame(height: 52)
-                .background(Theme.raised, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .frame(minWidth: 44, minHeight: 44)
+                .sensoryFeedback(.impact, trigger: store.undoLabel)
             }
+            .padding(.leading, 16).padding(.trailing, 8)
+            .frame(height: 52)
+            .background(Theme.raised, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
     }
 }

@@ -188,6 +188,26 @@ final class TripStore: ObservableObject {
     private var undoStack: [UndoEntry] = []
     var canUndo: Bool { !undoStack.isEmpty }
 
+    /// What Undo would take back, for the always-visible Undo bar: the step added, the stop un-marked, or the order
+    /// accepted / removed. Nil when nothing can be undone.
+    var undoLabel: String? {
+        // Only for this trip: an older trip's change is not offered on this order's card.
+        guard let entry = undoStack.last, entry.before == nil || entry.before?.id == active?.id else { return nil }
+        let now = active?.steps ?? [], then = entry.before?.steps ?? []
+        if let added = now.filter({ s in !then.contains { $0.id == s.id } }).max(by: { $0.at < $1.at }) { return added.label }
+        if let removed = then.first(where: { s in !now.contains { $0.id == s.id } }) {
+            return "Un-marked · " + removed.label.replacingOccurrences(of: "Arrived at ", with: "")
+        }
+        let nowOrders = active?.orders ?? [], thenOrders = entry.before?.orders ?? []
+        if let accepted = nowOrders.first(where: { o in !thenOrders.contains { $0.offerId == o.offerId } }) {
+            return "Accepted · " + (accepted.stores.first ?? Theme.appName(accepted.platform))
+        }
+        if let gone = thenOrders.first(where: { o in !nowOrders.contains { $0.offerId == o.offerId } }) {
+            return "Removed · " + (gone.stores.first ?? Theme.appName(gone.platform))
+        }
+        return "Last change"
+    }
+
     private struct UndoEntry: Codable {
         let before: Trip?
         let historyCount: Int
