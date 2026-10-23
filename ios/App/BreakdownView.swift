@@ -287,8 +287,8 @@ struct PerMileChart: View {
     var body: some View {
         Chart {
             ForEach(bars) { bar in
-                BarMark(xStart: .value("From", bar.low), xEnd: .value("To", bar.high),
-                        yStart: .value("Base", 0), yEnd: .value("Offers", bar.count))
+                RectangleMark(xStart: .value("From", bar.low), xEnd: .value("To", bar.high),
+                              yStart: .value("Base", 0), yEnd: .value("Offers", bar.count))
                     .foregroundStyle(bar.meets ? Theme.neonGreen : Theme.secondaryText.opacity(0.45))
             }
             RuleMark(x: .value("Your rate", rate))
