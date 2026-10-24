@@ -6,7 +6,7 @@ import XCTest
 final class HomeStates: XCTestCase {
     private var count = 100
 
-    private func capture(_ state: String, extra: [String] = [], name: String? = nil, tap: String? = nil) {
+    private func capture(_ state: String, extra: [String] = [], name: String? = nil, tap: String? = nil, open: String? = nil) {
         count += 2
         let app = XCUIApplication()
         app.launchArguments = ["-lumenPreview", "-dark", "-state", state] + extra
@@ -16,6 +16,11 @@ final class HomeStates: XCTestCase {
         if let tap {
             let button = app.buttons[tap].firstMatch
             if button.waitForExistence(timeout: 4) { button.tap(); sleep(1) }
+        }
+        // Open a row by its text (e.g. an offer in the Offers list).
+        if let open {
+            let row = app.staticTexts[open].firstMatch
+            if row.waitForExistence(timeout: 4) { row.tap(); sleep(2) }
         }
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = String(format: "%03d-", count) + (name ?? state)
@@ -40,6 +45,7 @@ final class HomeStates: XCTestCase {
         capture("order")
         capture("orderOffer", name: "order-with-offer")
         capture("order", name: "order-options-menu", tap: "Order options")
+        capture("waiting", extra: ["-tab", "1"], name: "offer-map-check", open: "Mendocino Farms")
         for (tab, name) in [(1, "offers"), (2, "earnings"), (5, "breakdown"), (6, "planner"), (7, "zones")] { capture("waiting", extra: ["-tab", String(tab)], name: name) }
     }
 }

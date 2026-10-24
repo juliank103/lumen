@@ -152,6 +152,10 @@ struct OfferDetail: View {
                 }.padding(.vertical, 4)
             }
             TripResultSection(offerId: offer.offerId ?? offer.id)
+            // The pins the reader chose on this offer's map (user, Oct 23), to check against the app's map.
+            if let snapshot = MapSnapshot.parse(offer.mapSnapshot), !snapshot.pins.isEmpty {
+                Section("Map check") { MapCheckView(offer: offer, snapshot: snapshot) }
+            }
             Section {
                 NavigationLink("How __APP_NAME__ decided") { OfferReasoning(offer: offer) }
             }

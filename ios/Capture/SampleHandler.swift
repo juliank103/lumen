@@ -260,6 +260,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
         var trace: [String] = [] // These three are touched only on `processing`.
         var mapCurrent: (Double, Double)?
         var mapJSON: String? // What the map reader saw (pins, icons, dot, labels), for the collected reading data.
+        var mapRoles: String? // Which pins it took as pickup and drop-off (screen positions).
         var timings: [String: Int] = ["ocrDone": ms(ocrDoneAt), "firstNotification": ms(firstNotifiedAt)]
         let router = self.router
         // Last step: the "already driving back to __HOME_NAME__" credit (3 s at most), then storage and any UPDATE.
@@ -289,7 +290,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
                         // Reading data for every offer (user, Oct 21: "We can do 1"): the card's text and what the map reader
                         // saw on screen — never coordinates, street names, or the drop-off places worked out from them.
                         extra["cardLines"] = Self.cardText(cardLines, below: summary.mapBottom)
-                        if let snapshot = mapJSON.flatMap(Self.mapSnapshot) { extra["mapSnapshot"] = snapshot }
+                        if let snapshot = mapJSON.flatMap({ Self.mapSnapshot($0, roles: mapRoles) }) { extra["mapSnapshot"] = snapshot }
                         guard var finalized = try? reader.finalize(summary, route: route, credit: credit, note: note,
                                                                    debug: trace.joined(separator: " · "), at: seenAt, extra: extra) else { return }
                         let update = reader.shouldUpdate(preliminaryWord: preliminary.word, refinedNotice: finalized.offer.notice ?? "")
@@ -332,6 +333,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
                                                  pickupCount: summary.pickupCount, phone: router.phoneFix,
                                                  dropoffCount: summary.dropoffCount, outboundMilliMiles: summary.outboundMilliMiles)
                 if let debug = located?.debug { trace.append(debug) }
+                mapRoles = located?.screenJSON
                 mapCurrent = located?.current
                 guard let located, !located.dropoffs.isEmpty else { return fallback(located?.reason ?? "map could not be read") }
                 // The map's store -> drop-offs must fit the app's own trip miles; if they don't, the pins were misread
@@ -452,7 +454,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
     /// The map reader's view of the screen, for the collected reading data: each pin's screen position, size, and kind
     /// (store / customer, with the icon's shape), the location dot, and town-name labels. Street-name labels are left
     /// out, and nothing here is a map coordinate.
-    static func mapSnapshot(_ json: String) -> String? {
+    static func mapSnapshot(_ json: String, roles: String? = nil) -> String? {
         guard let object = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any],
               let found = object["found"] as? [String: Any] else { return nil }
         let r3 = { (v: Any?) -> Double? in (v as? Double).map { ($0 * 1000).rounded() / 1000 } }
@@ -470,6 +472,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
         var snapshot: [String: Any] = ["pins": pins, "labels": labels, "style": found["styleName"] as? String ?? ""]
         if let dot = found["currentLocation"] as? [String: Any] { snapshot["dot"] = ["x": r3(dot["x"]) ?? 0, "y": r3(dot["y"]) ?? 0] }
         if let pickups = found["pickupPins"] as? [[String: Any]], !pickups.isEmpty { snapshot["pickupPins"] = pickups.count }
+        // The reader's choice: which pins it took as pickup and drop-off (screen positions, user Oct 23).
+        if let roles, let object = try? JSONSerialization.jsonObject(with: Data(roles.utf8)) { snapshot["chosen"] = object }
         guard let data = try? JSONSerialization.data(withJSONObject: snapshot) else { return nil }
         return String(data: data, encoding: .utf8)
     }

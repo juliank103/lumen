@@ -6,7 +6,7 @@
   'use strict';
   const MILES_PER_RADIAN = 3958.8;
   // Stamped on journaled predictions (addendum §9); bump when pin/label/fit logic changes.
-  const VERSION = 'map-2026-10-21'; // build 23: phone-anchored dot, geographic pickup pin, route-scaled fit
+  const VERSION = 'map-2026-10-23'; // build 23: phone-anchored dot, geographic pickup pin, route-scaled fit
 
   // Pin styles seen in the user's screenshots (October 2026). anchorBelow: pin tip/anchor below the disc center, in radii.
   const STYLES = {
@@ -394,10 +394,14 @@
     // A short trace for the offer list, so a failure can be pinned to a step on the phone. Town names only.
     const debug = 'pins ' + found.pins.length + (found.currentLocation ? ', blue dot' : ', no blue dot') + (dotAnchored ? ' at phone position' : '') +
       '; labels ' + (labels.map(l => l.text).join('/') || 'none') + '; towns matched ' + labelCount + '; ' + how;
-    if (!chosen.pins.length) return { dropoffs: [], reason: chosen.reason, debug };
+    // Which pins were taken as the pickup(s) and the drop-off(s), in screen positions (user, Oct 23: "see the map pins it
+    // estimates to see how accurate it is per order"). Screen positions only, never the places worked out from them.
+    const r3 = v => Math.round(v * 1000) / 1000;
+    const screen = { pickups: (chosen.pickups || []).map(p => ({ x: r3(p.x), y: r3(p.y) })), dropoffs: chosen.pins.map(p => ({ x: r3(p.x), y: r3(p.y) })) };
+    if (!chosen.pins.length) return { dropoffs: [], reason: chosen.reason, debug, screen };
     let fit = controls.length >= 2 ? fitMap(controls, found.aspect) : null;
     if (!fit && dotAnchored) fit = routeScaleFit(found, controls[controls.length - 1], chosen.pickups, chosen.pins, extra.outboundMilliMiles);
-    if (!fit) return { dropoffs: [], reason: controls.length < 2 ? 'Fewer than two places on the map could be matched' : 'Places on the map did not line up', debug };
+    if (!fit) return { dropoffs: [], reason: controls.length < 2 ? 'Fewer than two places on the map could be matched' : 'Places on the map did not line up', debug, screen };
     // Town labels sit near, not exactly at, town centers; a trip-scaled map is coarser still.
     const uncertaintyMiles = fit.routeScaled
       ? Math.max(0.75, 0.3 * Math.max.apply(null, chosen.pins.map(p => Math.hypot(p.x - found.currentLocation.x, (p.y - found.currentLocation.y) * found.aspect))) * fit.milesPerUnit)
@@ -406,7 +410,7 @@
     const current = found.currentLocation ? toLatLon(fit, found.currentLocation) : null;
     // Pickup pins too, so the caller can time the trip (here → pickup → drop-offs) with Apple Maps.
     return { dropoffs: chosen.pins.map(p => toLatLon(fit, p)), pickups: chosen.pickups.map(p => toLatLon(fit, p)), current,
-      uncertaintyMiles, screenWidthMiles: fit.screenWidthMiles, reason: null,
+      uncertaintyMiles, screenWidthMiles: fit.screenWidthMiles, reason: null, screen,
       debug: debug + '; map ' + fit.screenWidthMiles.toFixed(1) + ' mi wide' + (fit.routeScaled ? ' (scaled from trip miles)' : '') };
   }
 

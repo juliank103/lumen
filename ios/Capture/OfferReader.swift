@@ -45,6 +45,8 @@ final class OfferReader {
         let reason: String?
         /// Pin/label counts and town names, for the offer list. Never customer details.
         let debug: String?
+        /// The pins taken as pickup(s) and drop-off(s), as screen positions (JSON), for the offer's map check.
+        var screenJSON: String? = nil
     }
 
     private let context: JSContext
@@ -169,8 +171,9 @@ final class OfferReader {
             guard let lat = item["lat"] as? Double, let lon = item["lon"] as? Double else { return nil }
             return (lat, lon)
         }
+        let screen = (object["screen"]).flatMap { try? JSONSerialization.data(withJSONObject: $0) }.flatMap { String(data: $0, encoding: .utf8) }
         return MapLocation(dropoffs: dropoffs, current: current, pickups: pickups, uncertaintyMiles: object["uncertaintyMiles"] as? Double ?? 1,
-                           reason: object["reason"] as? String, debug: object["debug"] as? String)
+                           reason: object["reason"] as? String, debug: object["debug"] as? String, screenJSON: screen)
     }
 
     /// The user's rules (default $1 per total mile and $25/hour gross), edited in the app (Account) and read from the

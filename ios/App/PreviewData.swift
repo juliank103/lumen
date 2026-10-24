@@ -34,6 +34,13 @@ enum PreviewData {
         return Int(args[i + 1]) ?? 0
     }
 
+    /// An invented map reading for the offer page's map check: store and drop-off pins, one unused pin, the dot, towns.
+    static let mapCheckSample: [String: Any] = [
+        "returnKind": "map", "returnMilliMiles": 6900, "uncertaintyMilliMiles": 800,
+        "returnDebug": "pins 3, blue dot at phone position; labels Fairview/Greenville; towns matched 2; restaurant pin matched; map 4.1 mi wide",
+        "mapSnapshot": #"{"pins":[{"centerX":0.36,"centerY":0.21,"radius":0.046,"kind":"store"},{"centerX":0.2,"centerY":0.46,"radius":0.046,"kind":"customer"},{"centerX":0.74,"centerY":0.30,"radius":0.03,"kind":"store"}],"labels":[{"text":"Greenville","x":0.25,"y":0.12},{"text":"Fairview","x":0.62,"y":0.40}],"dot":{"x":0.70,"y":0.35},"chosen":{"pickups":[{"x":0.36,"y":0.24}],"dropoffs":[{"x":0.2,"y":0.49}]}}"#
+    ]
+
     /// Invented offers for the Breakdown screenshot: two weeks of afternoons and evenings across the three apps,
     /// mostly declines, more good ones at lunch and dinner (deterministic, so screenshots compare build to build).
     static let breakdownOffers: [LiveOffer] = {
@@ -137,13 +144,14 @@ enum PreviewData {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return rows.compactMap { row in
-            let object: [String: Any] = [
+            var object: [String: Any] = [
                 "seenAt": ISO8601DateFormatter().string(from: now.addingTimeInterval(row.6)),
                 "platform": row.0, "payCents": row.1, "outboundMilliMiles": row.2, "merchant": row.3,
                 "confidence": 0.97, "tone": row.5, "notice": row.4, "detail": "Sample offer (invented)",
                 "headline": "Sample", "fingerprint": "\(row.0)|\(row.1)", "latencyFirstMs": 1400, "latencyRefinedMs": 5200,
                 "offerId": "preview-\(row.0)-\(row.1)", "why": row.7
             ]
+            if row.3 == "Mendocino Farms" { object.merge(mapCheckSample) { $1 } }
             guard let data = try? JSONSerialization.data(withJSONObject: object) else { return nil }
             return try? decoder.decode(LiveOffer.self, from: data)
         }
