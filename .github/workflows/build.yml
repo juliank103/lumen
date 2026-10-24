@@ -5,7 +5,8 @@ on:
     branches: [main]
 jobs:
   ios:
-    runs-on: macos-15
+    # Xcode 27 / iOS 27 SDK (Apple Intelligence APIs; Oct 24, 2026). GitHub's preview image.
+    runs-on: xcode-27
     defaults:
       run:
         working-directory: ios
@@ -53,7 +54,7 @@ jobs:
       - name: Unit tests
         continue-on-error: true
         run: |
-          xcodebuild test -project Lumen.xcodeproj -scheme Lumen -destination 'platform=iOS Simulator,name=iPhone 16 Pro Max' \
+          xcodebuild test -project Lumen.xcodeproj -scheme Lumen -destination 'platform=iOS Simulator,name=iPhone 18 Pro Max' \
             -derivedDataPath testbuild -only-testing:LumenTests CODE_SIGNING_ALLOWED=NO > test.log 2>&1 || true
           grep -E '\*\* TEST' test.log || true
           grep -q '\*\* TEST SUCCEEDED' test.log
@@ -61,7 +62,7 @@ jobs:
       - name: Home states (screenshots)
         continue-on-error: true
         run: |
-          xcodebuild test -project Lumen.xcodeproj -scheme Lumen -destination 'platform=iOS Simulator,name=iPhone 16 Pro Max'             -derivedDataPath testbuild -resultBundlePath states.xcresult -only-testing:LumenUITests/HomeStates CODE_SIGNING_ALLOWED=NO > states.log 2>&1 || true
+          xcodebuild test -project Lumen.xcodeproj -scheme Lumen -destination 'platform=iOS Simulator,name=iPhone 18 Pro Max'             -derivedDataPath testbuild -resultBundlePath states.xcresult -only-testing:LumenUITests/HomeStates CODE_SIGNING_ALLOWED=NO > states.log 2>&1 || true
           mkdir -p states-raw dist/states
           xcrun xcresulttool export attachments --path states.xcresult --output-path states-raw || true
           python3 ../tools/name-tour.py states-raw dist/states || true
