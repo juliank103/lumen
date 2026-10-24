@@ -151,7 +151,7 @@ struct OfferDetail: View {
                     AcceptButton(offer: offer)
                 }.padding(.vertical, 4)
             }
-            TripResultSection(offerId: offer.offerId ?? offer.id)
+            TripResultSection(offerId: offer.offerId ?? offer.id, estimatedReturnMilliMiles: offer.returnMilliMiles)
             // The pins the reader chose on this offer's map (user, Oct 23), to check against the app's map.
             if let snapshot = MapSnapshot.parse(offer.mapSnapshot), !snapshot.pins.isEmpty {
                 Section("Map check") { MapCheckView(offer: offer, snapshot: snapshot) }

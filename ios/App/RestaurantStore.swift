@@ -46,6 +46,18 @@ final class RestaurantStore: ObservableObject {
         decode()
     }
 
+    /// The stores you've arrived at, with their names, for the offer reader to pin a store on an offer's map exactly
+    /// (reader upgrade 3, Oct 23). Businesses only.
+    private func shareKnownPlaces() {
+        guard !PreviewData.isActive else { return }
+        let places = restaurants.compactMap { r -> StorePlace? in
+            guard r.visits > 0, let lat = r.lat, let lon = r.lon else { return nil }
+            let keys = Array(Set(([r.name] + r.aliases).map(StorePlaces.normalize).filter { !$0.isEmpty })).sorted()
+            return keys.isEmpty ? nil : StorePlace(keys: keys, lat: lat, lon: lon)
+        }
+        StorePlaces.save(places)
+    }
+
     /// Adds new offers and store visits (cheap when nothing changed).
     func update(offers: [LiveOffer], trips: [Trip]) {
         let steps = trips.reduce(0) { $0 + $1.steps.count }
@@ -110,7 +122,7 @@ final class RestaurantStore: ObservableObject {
 
     private func decode(trips: [Trip]? = nil) {
         let list = ShiftEngine.decode(Database.self, db)?.restaurants ?? []
-        if list != restaurants { restaurants = list }
+        if list != restaurants { restaurants = list; shareKnownPlaces() }
         let tripsJSON = ShiftEngine.json(encodable: trips ?? allTrips)
         let computed = ShiftEngine.decode([String: RestaurantStat].self,
                                           ShiftEngine.call("restaurantStatsJSON", [db, tripsJSON, ShiftEngine.json(ShiftEngine.offsetMinutes)])) ?? [:]

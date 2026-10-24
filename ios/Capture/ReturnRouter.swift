@@ -261,6 +261,9 @@ final class ReturnRouter: NSObject, CLLocationManagerDelegate {
 
     /// Town names printed on the offer map → coordinates (exact town matches only), plus the restaurant's
     /// coordinate when its street address is known.
+    /// Whether the last map's store position came from your own visits (for the trace).
+    private(set) var pickupFromVisits = false
+
     func mapPlaces(labels: [String], pickup: String?, pickupName: String? = nil,
                    completion: @escaping ([String: (Double, Double)], (Double, Double)?) -> Void) {
         DispatchQueue.main.async {
@@ -280,7 +283,13 @@ final class ReturnRouter: NSObject, CLLocationManagerDelegate {
                     group.leave()
                 }
             }
-            if let pickup {
+            // A store you've arrived at before: its real position (reader upgrade 3, Oct 23) beats any search.
+            let near = self.currentPosition(mapCurrent: nil).map { CLLocation(latitude: $0.coordinate.latitude, longitude: $0.coordinate.longitude) }
+            if let name = pickupName, let known = StorePlaces.nearest(name, near: near) {
+                pickupPlace = known
+                self.pickupFromVisits = true
+            } else if let pickup {
+                self.pickupFromVisits = false
                 group.enter()
                 self.search(pickup) { item in
                     if let item, item.placemark.thoroughfare != nil {
@@ -289,6 +298,7 @@ final class ReturnRouter: NSObject, CLLocationManagerDelegate {
                     group.leave()
                 }
             } else if let pickupName, let here = self.currentPosition(mapCurrent: nil) {
+                self.pickupFromVisits = false
                 // No address on the card: the branch nearest the driver (offers are local). The map reader then checks
                 // that a pin really sits in that direction and distance before trusting it.
                 group.enter()

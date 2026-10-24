@@ -1137,7 +1137,21 @@
       const worst = rows.slice().sort((a, b) => a.rate - b.rate || b.offers - a.offers).filter(r => !best.includes(r)).slice(0, 5);
       restaurants = { best, worst };
     }
-    return { mix, grid, perMile, payoff, picky, times, restaurants };
+    // How accurate the drive-back estimates are (reader upgrade 1, Oct 23): the return the verdict used vs the real
+    // drive back from where you delivered (Apple Maps at the last drop-off), per way the return was worked out.
+    const accuracy = {};
+    for (const order of ordersOf(input.trips)) {
+      const offer = byOffer[order.offerId];
+      if (!offer || !appOk(offer) || !valid(order.actualReturnMilliMiles) || !valid(offer.returnMilliMiles)) continue;
+      const a = accuracy[offer.returnKind || 'other'] = accuracy[offer.returnKind || 'other'] || { orders: 0, off: 0, bias: 0, within1: 0 };
+      const diff = (offer.returnMilliMiles - order.actualReturnMilliMiles) / 1000;
+      a.orders++; a.off += Math.abs(diff); a.bias += diff; if (Math.abs(diff) <= 1) a.within1++;
+    }
+    for (const a of Object.values(accuracy)) {
+      a.off = Math.round(a.off / a.orders * 10) / 10; a.bias = Math.round(a.bias / a.orders * 10) / 10;
+      a.within1 = Math.round(a.within1 / a.orders * 100);
+    }
+    return { mix, grid, perMile, payoff, picky, times, accuracy, restaurants };
   }
 
   /* Shift planner (user, Oct 23): "To make $X this week, work these hours." Each weekday-hour's $/hr from history (pay of

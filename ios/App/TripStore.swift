@@ -83,6 +83,9 @@ struct Trip: Codable, Identifiable, Equatable {
         /// The app's own time estimate for the order, entered by the driver (user, Oct 23: Grubhub shows it only after
         /// you accept). Used for the order's predicted $/hr and to learn how long that app's orders take.
         var appEtaMinutes: Int? = nil
+        /// The real drive back from where this order was delivered to the return destination (Apple Maps, worked out at
+        /// the last drop-off; the position itself is not kept). Compared with the verdict's return estimate.
+        var actualReturnMilliMiles: Int? = nil
 
         /// Pace including the drive back (the predicted return minutes), comparable with the verdict's $/hr.
         var paceWithReturnCents: Int? {
@@ -317,12 +320,15 @@ final class TripStore: ObservableObject {
             newStep.longitude = here.coordinate.longitude
         }
         trip.steps.append(newStep)
+        // Where you deliver the last drop-off is where the real drive back starts (reader upgrade 1, Oct 23).
+        if action.kind == .arrivedDropoff, action.stop >= trip.orders[index].dropoffs - 1 { ReturnCheck.arrivedAtLastDropoff(action.offerId) }
         var events = [step]
         if action.kind == .delivered, trip.count(.delivered, action.offerId) >= trip.orders[index].dropoffs {
             trip.orders[index].ended = "completed"
             trip.orders[index].endedAt = now
             events.append(event("completed", action.offerId, now, trip.id, ["payCents": trip.orders[index].payCents]))
             AudioCues.shared.delivered()
+            ReturnCheck.orderCompleted(action.offerId)
         }
         finish(&trip, now, &events)
         commit(before: before, historyCount: historyCount, events: events)
@@ -564,6 +570,18 @@ final class TripStore: ObservableObject {
             save()
         }
         ShiftStore.shared.refreshMetrics()
+    }
+
+    /// Records the real drive back for an order (ReturnCheck), active or finished. Not an undoable step.
+    func setActualReturn(_ offerId: String, milliMiles: Int) {
+        if var trip = active, let i = trip.orders.firstIndex(where: { $0.offerId == offerId }) {
+            trip.orders[i].actualReturnMilliMiles = milliMiles
+            active = trip
+        } else if let t = history.lastIndex(where: { $0.orders.contains { $0.offerId == offerId } }),
+                  let i = history[t].orders.firstIndex(where: { $0.offerId == offerId }) {
+            history[t].orders[i].actualReturnMilliMiles = milliMiles
+        } else { return }
+        save()
     }
 
     /// Orders removed with "Remove this order" in the last hour: offer id → (app, store codes, when). Screens never

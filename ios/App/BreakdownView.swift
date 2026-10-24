@@ -18,12 +18,15 @@ struct Breakdown: Decodable, Equatable {
         let averageHourlyCents: Int?; let passed: Int; let beatAverage: Int; let failedPerMile: Int; let failedHourly: Int; let verdict: String?
     }
     struct Times: Decodable, Equatable { let orders: Int; let actual: Int; let guessed: Int?; let eta: Int? }
+    /// Drive-back estimate vs the real drive back: miles off on average, average over (+) or under (−), share within 1 mi.
+    struct Accuracy: Decodable, Equatable { let orders: Int; let off: Double; let bias: Double; let within1: Int }
     let mix: Mix
     let grid: [Cell]
     let perMile: PerMile
     let payoff: Payoff
     let picky: Picky
     let times: [String: Times]
+    let accuracy: [String: Accuracy]
     let restaurants: Places
 }
 
@@ -50,6 +53,7 @@ struct BreakdownView: View {
                         pickyCard(data.picky)
                         payoffCard(data.payoff)
                         timesCard(data.times)
+                        accuracyCard(data.accuracy)
                         placesCard(data.restaurants)
                     } else {
                         Text("No offers yet.").foregroundStyle(Theme.secondaryText)
@@ -259,6 +263,35 @@ struct BreakdownView: View {
                 }
                 Text("Enter the app's time on an order (tap it, Edit) and __APP_NAME__ learns how long that app's orders take.")
                     .font(.footnote).foregroundStyle(Theme.secondaryText)
+            }
+        }
+    }
+
+    /// The reader grading itself (reader upgrade 1, Oct 23).
+    private func accuracyCard(_ accuracy: [String: Breakdown.Accuracy]) -> some View {
+        card("How accurate is the reader", "The drive back each verdict counted vs the real one from where you delivered.") {
+            if accuracy.isEmpty {
+                Text("Fills in as you finish orders.").foregroundStyle(Theme.secondaryText)
+            } else {
+                let names = ["map": "Map pins", "dropoff": "Drop-off street", "dropoff_town": "Town center", "worst_case": "Longest case"]
+                ForEach(accuracy.keys.sorted { accuracy[$0]!.orders > accuracy[$1]!.orders }, id: \.self) { kind in
+                    let a = accuracy[kind]!
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(names[kind] ?? kind.capitalized).font(.subheadline.weight(.semibold))
+                            Text((a.orders == 1 ? "1 order" : "\(a.orders) orders") + " · "
+                                 + (abs(a.bias) < 0.2 ? "no lean" : String(format: "%.1f mi too %@ on average", abs(a.bias), a.bias > 0 ? "long" : "short")))
+                                .font(.caption).foregroundStyle(Theme.secondaryText)
+                        }
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text("\(a.within1)%").font(.title3.weight(.heavy).monospacedDigit())
+                                .foregroundStyle(a.within1 >= 80 ? Theme.neonGreen : a.within1 >= 50 ? Theme.neonYellow : Theme.neonRed)
+                            Text(String(format: "within 1 mi · off %.1f", a.off)).font(.caption).foregroundStyle(Theme.secondaryText)
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
+                }
             }
         }
     }

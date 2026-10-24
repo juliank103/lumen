@@ -38,6 +38,14 @@ final class ShiftStore: ObservableObject {
     private var drivingBack = false
     private var closestToHome: CLLocationDistance?
     private var home: (name: String, coordinate: CLLocationCoordinate2D)?
+
+    /// The return destination's position: the exact place picked, else the Apple Maps result for the default.
+    var homeCoordinate: CLLocationCoordinate2D? {
+        let destination = ReturnDestinationStore.current
+        if let lat = destination.latitude, let lon = destination.longitude { return CLLocationCoordinate2D(latitude: lat, longitude: lon) }
+        if home == nil { resolveHome() }
+        return home?.name == destination.name ? home?.coordinate : nil
+    }
     private var lastSave = Date.distantPast
     private var timer: Timer?
 

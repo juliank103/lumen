@@ -328,7 +328,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
         trace.append("map labels read: " + (map.labels.joined(separator: "/").isEmpty ? "none" : map.labels.joined(separator: "/")))
         router.mapPlaces(labels: map.labels, pickup: summary.pickupQuery, pickupName: summary.pickupName) { places, pickupPlace in
             self.processing.async {
-                trace.append("towns found in Apple Maps: \(places.count)" + (pickupPlace != nil ? ", restaurant found" : ""))
+                trace.append("towns found in Apple Maps: \(places.count)"
+                             + (pickupPlace == nil ? "" : router.pickupFromVisits ? ", restaurant from your visits" : ", restaurant found"))
                 let located = try? reader.locate(map, places: places, pickup: pickupPlace, platform: summary.platform,
                                                  pickupCount: summary.pickupCount, phone: router.phoneFix,
                                                  dropoffCount: summary.dropoffCount, outboundMilliMiles: summary.outboundMilliMiles)

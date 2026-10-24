@@ -265,6 +265,8 @@ struct AcceptButton: View {
 struct TripResultSection: View {
     @ObservedObject private var store = TripStore.shared
     let offerId: String
+    /// The drive back the offer's verdict counted, to show next to the real one.
+    var estimatedReturnMilliMiles: Int? = nil
     @State private var editingPay = false
     @State private var editingOrder: OrderEditTarget?
     @State private var payText = ""
@@ -283,6 +285,11 @@ struct TripResultSection: View {
                     }
                 } else {
                     row("Status", "In progress")
+                }
+                // The real drive back from where it was delivered (reader upgrade 1, Oct 23).
+                if let real = order.actualReturnMilliMiles {
+                    row("Drive back", (estimatedReturnMilliMiles.map { String(format: "estimated %.1f · ", Double($0) / 1000) } ?? "")
+                        + String(format: "really %.1f mi", Double(real) / 1000))
                 }
                 // Timed on the shift clock (user, Oct 15): shift time since the previous delivery, idle included.
                 if order.completed, let c = ShiftStore.shared.completion(for: offerId, acceptedAt: order.acceptedAt) {
