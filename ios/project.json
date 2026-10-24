@@ -107,7 +107,8 @@
         { "path": "../core/copilot.js", "buildPhase": "resources" },
         { "path": "../core/screen-reader.js", "buildPhase": "resources" },
         { "path": "../core/map-reader.js", "buildPhase": "resources" },
-        { "path": "../core/lifecycle.js", "buildPhase": "resources" }
+        { "path": "../core/lifecycle.js", "buildPhase": "resources" },
+        { "path": "Models", "type": "folder", "buildPhase": "resources", "optional": true }
       ],
       "settings": { "base": {
         "PRODUCT_BUNDLE_IDENTIFIER": "com.juliank103.mellodycopilot.Capture",

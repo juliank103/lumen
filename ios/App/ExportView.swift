@@ -53,8 +53,7 @@ struct ExportButton: View {
             let everything = "{\"exportedAt\":\(ShiftEngine.json(ISO8601DateFormatter().string(from: Date()))),"
                 + "\"offers\":\(offersJSON),\"trips\":\(tripsJSON),\"shifts\":\(ShiftEngine.json(shiftRows)),"
                 + "\"restaurants\":\(RestaurantStore.shared.databaseJSON),\"entries\":\(EntryStore.shared.json),\"journal\":\(journal),"
-                + "\"aiReview\":\(AIReviewStore.shared.json),\"readerCompare\":\(ReaderCompareStore.shared.json),"
-                + "\"pinCheck\":\(PinCheckStore.shared.json)}"
+                + "\"aiReview\":\(AIReviewStore.shared.json),\"readerCompare\":\(ReaderCompareStore.shared.json)}"
             let url = folder.appendingPathComponent("__APP_SLUG__-history.json")
             try everything.write(to: url, atomically: true, encoding: .utf8)
             urls.append(url)

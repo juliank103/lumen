@@ -55,6 +55,7 @@ final class OfferReader {
     private let summarizeFunction: JSValue
     private let withReturnFunction: JSValue
     private let analyzeMapFunction: JSValue
+    private let analyzeDetectedFunction: JSValue?
     private let locateFunction: JSValue
     private let preliminaryFunction: JSValue
     private let shouldUpdateFunction: JSValue
@@ -95,6 +96,8 @@ final class OfferReader {
         summarizeFunction = summarize
         withReturnFunction = withReturn
         analyzeMapFunction = analyze
+        let detected = mapAPI.objectForKeyedSubscript("analyzeDetectedJSON")
+        analyzeDetectedFunction = detected?.isUndefined == false ? detected : nil
         locateFunction = locate
         preliminaryFunction = preliminary
         shouldUpdateFunction = shouldUpdate
@@ -134,12 +137,16 @@ final class OfferReader {
     }
 
     /// pixels: RGBA bytes of the map region; lines: OCR of that region in full-screen coordinates.
+    /// detections: the pin model's typed pins (JSON) — used instead of the pixel pin finder when given.
     func analyzeMap(pixels: Data, width: Int, height: Int, platform: String, top: Double, bottom: Double,
-                    aspect: Double, lines: [Line]) throws -> MapAnalysis? {
+                    aspect: Double, lines: [Line], detections: String? = nil) throws -> MapAnalysis? {
         let payload = lines.map { ["text": $0.text, "x": $0.x, "y": $0.y, "w": $0.w, "h": $0.h] as [String: Any] }
         guard let linesJSON = String(data: try JSONSerialization.data(withJSONObject: payload), encoding: .utf8) else { return nil }
         let region = "{\"top\":\(top),\"height\":\(bottom - top)}"
-        guard let text = try call(analyzeMapFunction, [pixels.base64EncodedString(), width, height, platform, region, aspect, linesJSON]),
+        let arguments: [Any] = detections != nil && analyzeDetectedFunction != nil
+            ? [detections!, pixels.base64EncodedString(), width, height, platform, region, aspect, linesJSON]
+            : [pixels.base64EncodedString(), width, height, platform, region, aspect, linesJSON]
+        guard let text = try call(detections != nil ? analyzeDetectedFunction ?? analyzeMapFunction : analyzeMapFunction, arguments),
               let data = text.data(using: .utf8),
               let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
         let labels = (object["labels"] as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }

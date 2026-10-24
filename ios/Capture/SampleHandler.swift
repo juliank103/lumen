@@ -565,7 +565,15 @@ final class SampleHandler: RPBroadcastSampleHandler {
         // The whole map from just under the status bar: DoorDash puts pins and town names near the top (Oct 21
         // screenshots; the old 13% cutoff hid a store pin and "Riverside"). Only when a notification banner covers the
         // top is that strip left out — a screen recording sees the banner, not what's under it.
-        let bottom = max(0.2, min(summary.mapBottom, 0.6))
+        // The map runs down to the card's solid panel, found from pixels (Oct 24: the card-text guess stopped short on 84 of
+        // 88 marked screenshots, leaving pins and the blue dot unread).
+        // 720 px wide (~4.5 MB, not 14 MB at full size in a 50 MB extension); the pin model was trained at this width.
+        let screenScale = 720 / extent.width
+        let screenSmall = frame.transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
+            .transformed(by: CGAffineTransform(scaleX: screenScale, y: screenScale))
+        let screenCG = imageContext.createCGImage(screenSmall, from: screenSmall.extent.integral)
+        let edge = screenCG.flatMap(PinDetector.cardTop)
+        let bottom = max(0.2, min(edge ?? summary.mapBottom, 0.8))
         var top = 0.055
         var lines = recognize(frame, top: top, bottom: bottom, level: .fast)
         if Self.bannerShown(lines) {
@@ -591,8 +599,15 @@ final class SampleHandler: RPBroadcastSampleHandler {
         }
         guard drawn else { return nil }
         let aspect = Double(extent.height / extent.width)
+        // The pin model, when it's in the build and finds a drop-off; otherwise the pixel rules in map-reader.js.
+        var detections: String? = nil
+        if let screenCG, let mapCG = screenCG.cropping(to: CGRect(x: 0, y: CGFloat(Double(screenCG.height) * top), width: CGFloat(screenCG.width),
+                                                                   height: CGFloat(Double(screenCG.height) * (bottom - top)))),
+           let found = PinDetector.shared.detect(map: mapCG, top: top, bottom: bottom), found.contains(where: { $0.kind == "customer" }) {
+            detections = PinDetector.json(found)
+        }
         guard let fast = try? reader.analyzeMap(pixels: pixels, width: width, height: height, platform: summary.platform,
-                                                top: top, bottom: bottom, aspect: aspect, lines: lines) else { return nil }
+                                                top: top, bottom: bottom, aspect: aspect, lines: lines, detections: detections) else { return nil }
         // Fewer than two place names read: read the map's text again, sharper, and keep whichever reading finds the most
         // towns. Both the accurate recognizer and a high-resolution fast pass: iOS 27.0's accurate recognizer was reported
         // to garble text (look-alike letters, junk after digits; research, Oct 24), while fast was unaffected.
@@ -601,7 +616,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
         for lines in [Self.latinOnly(recognize(frame, top: top, bottom: bottom, level: .fast, maxWidth: 1400)),
                       Self.latinOnly(recognize(frame, top: top, bottom: bottom, level: .accurate, maxWidth: 1400))] {
             if let candidate = try? reader.analyzeMap(pixels: pixels, width: width, height: height, platform: summary.platform,
-                                                      top: top, bottom: bottom, aspect: aspect, lines: lines),
+                                                      top: top, bottom: bottom, aspect: aspect, lines: lines, detections: detections),
                candidate.labels.count > best.labels.count { best = candidate }
             if best.labels.count >= 2 { break }
         }

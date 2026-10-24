@@ -26,6 +26,18 @@ jobs:
         run: |
           if [ -z "$ARTIFACT_KEY" ] || [ -z "$HOME_QUERY" ]; then echo "Build settings (secrets) are missing"; exit 1; fi
           python3 tools/personalize.py
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # The pin model, converted to Core ML on this Mac (coremltools has no Windows build). Without it the reader uses
+      # its pixel rules, so a failed conversion still ships a working build.
+      - name: Pin model
+        working-directory: .
+        continue-on-error: true
+        run: |
+          mkdir -p ios/Models
+          python -m pip install --quiet torch==2.7.0 torchvision==0.22.0 coremltools==9.0 pillow numpy
+          python tools/pin-model/convert.py tools/pin-model/pins.pt ios/Models/PinDetector.mlmodelc
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate Xcode project

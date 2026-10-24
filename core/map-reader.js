@@ -6,7 +6,7 @@
   'use strict';
   const MILES_PER_RADIAN = 3958.8;
   // Stamped on journaled predictions (addendum §9); bump when pin/label/fit logic changes.
-  const VERSION = 'map-2026-10-24'; // build 23: phone-anchored dot, geographic pickup pin, route-scaled fit
+  const VERSION = 'map-2026-10-24b'; // pin model (typed detections), card-edge map crop
 
   // Pin styles seen in the user's screenshots (October 2026). anchorBelow: pin tip/anchor below the disc center, in radii.
   const STYLES = {
@@ -15,6 +15,8 @@
     uber_eats_dark: { anchorBelow: 2.2, disc: (r, g, b) => r >= 165 && r <= 238 && Math.max(r, g, b) - Math.min(r, g, b) <= 20 },
     uber_eats_light: { anchorBelow: 2.2, disc: (r, g, b) => Math.max(r, g, b) <= 50 }
   };
+  // Pin head radius (fraction of screen width) per app: median of the pin finder's discs on marked screenshots (Oct 24).
+  const HEAD_RADIUS = { doordash: 0.0525, uber_eats: 0.039, grubhub: 0.0325 };
   const isBlueDot = (r, g, b) => b >= 200 && r <= 110 && g >= 90 && g <= 180;
 
   function decodeBase64(text) {
@@ -66,6 +68,19 @@
     const pickupPins = platform === 'uber_eats' ? asPins(detectDiscs(green, W, H)) : [];
     const currentLocation = dot ? toScreen(dot.x, dot.y) : null;
     return { pins, pickupPins, currentLocation, styleName, aspect };
+  }
+
+  /* The pin model's detections (head centers, screen-normalized, each typed store / customer / you) in findPins' shape.
+   * typed: every pin already says what it is, so nothing is guessed from counts or distances. fallbackDot: the pixel
+   * rules' blue dot, used when the model sees none (it missed the dot on 9% of DoorDash maps where the rules found it). */
+  function modelFound(detections, platform, aspect, fallbackDot) {
+    const style = STYLES[platform === 'uber_eats' ? 'uber_eats_light' : platform] || { anchorBelow: 0 };
+    const r = HEAD_RADIUS[platform] || 0.04;
+    const pins = detections.filter(d => d.kind === 'store' || d.kind === 'customer').map(d => ({
+      x: d.x, y: Math.min(1, d.y + style.anchorBelow * r / aspect), centerX: d.x, centerY: d.y, radius: r, kind: d.kind,
+      score: Math.round(d.score * 100) / 100 }));
+    const you = detections.filter(d => d.kind === 'you').sort((p, q) => q.score - p.score)[0];
+    return { pins, pickupPins: [], currentLocation: you ? { x: you.x, y: you.y } : fallbackDot || null, styleName: 'model', aspect, typed: true };
   }
 
   /* DoorDash draws a storefront in store pins and a person in drop-off pins (Oct 21 screenshots, maps read at 400 px):
@@ -383,15 +398,17 @@
     const dotAnchored = !!(found.currentLocation && validPlace(extra.current));
     if (dotAnchored) controls.push({ x: found.currentLocation.x, y: found.currentLocation.y, lat: extra.current.lat, lon: extra.current.lon, weight: 4 });
     let chosen, how;
-    // DoorDash's icons say which pins are stores and which are drop-offs: no guessing (Oct 21).
+    // DoorDash's icons say which pins are stores and which are drop-offs: no guessing (Oct 21). The pin model types
+    // every pin on every app (Oct 24); a store hidden under another pin then just means no pickup anchor.
     const stores = found.pins.filter(p => p.kind === 'store'), customers = found.pins.filter(p => p.kind === 'customer');
-    if (platform === 'doordash' && stores.length && customers.length && stores.length + customers.length === found.pins.length) {
+    if ((platform === 'doordash' || found.typed) && (stores.length || found.typed) && customers.length
+        && stores.length + customers.length === found.pins.length) {
       const pick = stores.length > 1 && validPlace(pickupPlace) && controls.length >= 1
         ? choosePickupPin(Object.assign({}, found, { pins: stores }), controls, pickupPlace, null) : null;
       const pickup = pick ? stores[pick.index] : stores[0];
       chosen = { pins: customers.map(p => ({ x: p.x, y: p.y })), pickups: stores.map(p => ({ x: p.x, y: p.y })), reason: null };
-      if (validPlace(pickupPlace) && (pick || stores.length === 1)) controls.push({ x: pickup.x, y: pickup.y, lat: pickupPlace.lat, lon: pickupPlace.lon, weight: 4 });
-      how = 'pins told apart by their icons';
+      if (validPlace(pickupPlace) && pickup && (pick || stores.length === 1)) controls.push({ x: pickup.x, y: pickup.y, lat: pickupPlace.lat, lon: pickupPlace.lon, weight: 4 });
+      how = found.typed ? 'pins found by the pin model' : 'pins told apart by their icons';
       return finish(found, chosen, controls, labelCount, how, dotAnchored, labels, extra);
     }
     const picked = platform !== 'uber_eats' && validPlace(pickupPlace) && found.pins.length > 1 && controls.length >= 1
@@ -446,12 +463,18 @@
       debug: debug + '; map ' + fit.screenWidthMiles.toFixed(1) + ' mi wide' + (fit.routeScaled ? ' (scaled from trip miles)' : '') };
   }
 
-  const api = { VERSION, decodeBase64, findPins, mapLabels, fitMap, toLatLon, dropoffPins, locateDropoffs,
+  const api = { VERSION, decodeBase64, findPins, modelFound, mapLabels, fitMap, toLatLon, dropoffPins, locateDropoffs,
     // JSON bridge for the iPhone: pixels arrive as base64 RGBA.
     analyzeJSON: (pixelsBase64, width, height, platform, regionJSON, aspect, linesJSON) => {
       const region = JSON.parse(regionJSON);
       const found = findPins({ width, height, data: decodeBase64(pixelsBase64) }, platform, region, aspect);
       return JSON.stringify({ found, labels: mapLabels(JSON.parse(linesJSON), region) });
+    },
+    analyzeDetectedJSON: (detectionsJSON, pixelsBase64, width, height, platform, regionJSON, aspect, linesJSON) => {
+      const region = JSON.parse(regionJSON), detections = JSON.parse(detectionsJSON);
+      const dot = detections.some(d => d.kind === 'you') ? null
+        : findPins({ width, height, data: decodeBase64(pixelsBase64) }, platform, region, aspect).currentLocation;
+      return JSON.stringify({ found: modelFound(detections, platform, aspect, dot), labels: mapLabels(JSON.parse(linesJSON), region) });
     },
     locateJSON: (analysisJSON, placesJSON, platform, pickupCount, pickupPlaceJSON, extraJSON) => {
       const analysis = JSON.parse(analysisJSON);
