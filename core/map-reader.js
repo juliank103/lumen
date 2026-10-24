@@ -6,7 +6,7 @@
   'use strict';
   const MILES_PER_RADIAN = 3958.8;
   // Stamped on journaled predictions (addendum §9); bump when pin/label/fit logic changes.
-  const VERSION = 'map-2026-10-23'; // build 23: phone-anchored dot, geographic pickup pin, route-scaled fit
+  const VERSION = 'map-2026-10-24'; // build 23: phone-anchored dot, geographic pickup pin, route-scaled fit
 
   // Pin styles seen in the user's screenshots (October 2026). anchorBelow: pin tip/anchor below the disc center, in radii.
   const STYLES = {
@@ -190,7 +190,8 @@
     return d;
   }
 
-  const UI_WORDS = /^(Accept|Decline|Reject|Uber|Dasher|Chrome|mapbox|Delivery|Exclusive|Pickup|Route|Back)$/i;
+  // Screen words that look like place names (Oct 24 export: "Busy" and "Reading" were matched to real towns).
+  const UI_WORDS = /^(Accept|Decline|Reject|Uber|Dasher|Chrome|mapbox|Delivery|Exclusive|Pickup|Route|Back|Busy|Reading|Offers?|Online|Offline|Paused|Dash|Navigate|Arrived|Maps?|Satellite|Search|Directions|Today|Earnings|Promotions?|Schedule|__APP_NAME__|Copilot|Notifications?|Settings|Ratings?|Account|Help|Done|Cancel|Continue|Details|Tips?|Orders?|Stops?|Total|Guaranteed|Includes?)$/i;
   // Streets and a few non-place words. Lake/Woods/Park are not here: Franklin, Springfield, Salem, Oakdale
   // Woods, and Ashland are towns; the Apple Maps lookup (towns only) rejects real lakes and parks.
   const STREET = /\b(Rd|Road|Ave|Avenue|St|Street|Dr|Drive|Blvd|Ln|Lane|Ct|Hwy|Highway|Pkwy|Tollway|Expy|Way|Trl|Trail|Pl|Cir|Ter|Sq)\b\.?$|^[NSEW]\s|\b(Forest Preserve|Golf|Club|Mall|School|Airport)\b/i;
@@ -329,6 +330,11 @@
   /* Map scale from the trip itself when only one place is anchored (the dot): the straight path dot → pickups →
    * drop-offs is the app's road miles divided by a typical detour factor. Coarser than two anchors. */
   const DETOUR = 1.25;
+  const haversineMiles = (p, q) => {
+    const r = Math.PI / 180, dLat = (q.lat - p.lat) * r, dLon = (q.lon - p.lon) * r;
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(p.lat * r) * Math.cos(q.lat * r) * Math.sin(dLon / 2) ** 2;
+    return 2 * MILES_PER_RADIAN * Math.asin(Math.sqrt(h));
+  };
   function routeScaleFit(found, anchor, pickups, drops, outboundMilliMiles) {
     if (!Number.isSafeInteger(outboundMilliMiles) || !found.currentLocation) return null;
     const path = [found.currentLocation].concat(nearestFirst(found.currentLocation, pickups)).concat(nearestFirst(pickups[pickups.length - 1] || found.currentLocation, drops));
@@ -339,7 +345,27 @@
     if (milesPerUnit < 1 || milesPerUnit > 120) return null;
     const s = MILES_PER_RADIAN * Math.cos(anchor.lat * Math.PI / 180) / milesPerUnit;
     const a = anchor.x - s * anchor.lon * Math.PI / 180, b = anchor.y * found.aspect + s * mercY(anchor.lat);
-    return { s, a, b, aspect: found.aspect, milesPerUnit, screenWidthMiles: milesPerUnit, residualMiles: 0, controlCount: 1, routeScaled: true };
+    return { s, a, b, aspect: found.aspect, milesPerUnit, screenWidthMiles: milesPerUnit, residualMiles: 0, controlCount: 1, routeScaled: true,
+      anchorPoint: found.currentLocation };
+  }
+
+  /* No town names and no dot, but the store's position is known (your visits, or its address): anchor on the store pin
+   * and take the scale from the store → drop-offs part of the trip's miles (the drive to the store, estimated from the
+   * phone's position, taken off). Maps are north-up. (Oct 24 export: maps with pins but no readable town names were
+   * dropped to a worst case.) */
+  function storeScaleFit(found, anchor, pickupPoint, drops, outboundMilliMiles, toPickupMiles) {
+    if (!Number.isSafeInteger(outboundMilliMiles) || !drops.length) return null;
+    const path = [pickupPoint].concat(nearestFirst(pickupPoint, drops));
+    let units = 0;
+    for (let k = 1; k < path.length; k++) units += Math.hypot(path[k].x - path[k - 1].x, (path[k].y - path[k - 1].y) * found.aspect);
+    const deliveryMiles = outboundMilliMiles / 1000 - (toPickupMiles || 0);
+    if (units < 0.05 || deliveryMiles < 0.5) return null;
+    const milesPerUnit = deliveryMiles / (units * DETOUR);
+    if (milesPerUnit < 1 || milesPerUnit > 120) return null;
+    const s = MILES_PER_RADIAN * Math.cos(anchor.lat * Math.PI / 180) / milesPerUnit;
+    const a = anchor.x - s * anchor.lon * Math.PI / 180, b = anchor.y * found.aspect + s * mercY(anchor.lat);
+    return { s, a, b, aspect: found.aspect, milesPerUnit, screenWidthMiles: milesPerUnit, residualMiles: 0, controlCount: 1, routeScaled: true,
+      anchorPoint: pickupPoint };
   }
 
   /* End-to-end after the caller looked up the labels: labelPlaces = [{ text, lat, lon }] (unmatched labels omitted);
@@ -347,7 +373,7 @@
    * extra = { current: phone { lat, lon }, dropoffCount, outboundMilliMiles }.
    * Returns drop-off coordinates with an uncertainty, or a reason. */
   function locateDropoffs(found, labels, labelPlaces, platform, pickupCount, pickupPlace, extra) {
-    extra = extra || {};
+    extra = Object.assign({}, extra || {}, { pickupPlace });
     const controls = labels.map(l => {
       const place = labelPlaces.find(p => p.text === l.text);
       return validPlace(place) ? { x: l.x, y: l.y, lat: place.lat, lon: place.lon } : null;
@@ -401,10 +427,16 @@
     if (!chosen.pins.length) return { dropoffs: [], reason: chosen.reason, debug, screen };
     let fit = controls.length >= 2 ? fitMap(controls, found.aspect) : null;
     if (!fit && dotAnchored) fit = routeScaleFit(found, controls[controls.length - 1], chosen.pickups, chosen.pins, extra.outboundMilliMiles);
+    // Needs the phone's position too, to take the drive to the store off the trip's miles.
+    if (!fit && validPlace(extra.pickupPlace) && validPlace(extra.current) && chosen.pickups && chosen.pickups.length === 1) {
+      const p = chosen.pickups[0];
+      fit = storeScaleFit(found, { x: p.x, y: p.y, lat: extra.pickupPlace.lat, lon: extra.pickupPlace.lon }, p, chosen.pins,
+        extra.outboundMilliMiles, DETOUR * haversineMiles(extra.current, extra.pickupPlace));
+    }
     if (!fit) return { dropoffs: [], reason: controls.length < 2 ? 'Fewer than two places on the map could be matched' : 'Places on the map did not line up', debug, screen };
     // Town labels sit near, not exactly at, town centers; a trip-scaled map is coarser still.
     const uncertaintyMiles = fit.routeScaled
-      ? Math.max(0.75, 0.3 * Math.max.apply(null, chosen.pins.map(p => Math.hypot(p.x - found.currentLocation.x, (p.y - found.currentLocation.y) * found.aspect))) * fit.milesPerUnit)
+      ? Math.max(0.75, 0.3 * Math.max.apply(null, chosen.pins.map(p => Math.hypot(p.x - fit.anchorPoint.x, (p.y - fit.anchorPoint.y) * found.aspect))) * fit.milesPerUnit)
       : Math.max(labelCount ? 0.75 : 0.5, 2 * fit.residualMiles + 0.02 * fit.screenWidthMiles);
     // The driver's dot, when shown, gives the position for the "already driving back" credit.
     const current = found.currentLocation ? toLatLon(fit, found.currentLocation) : null;

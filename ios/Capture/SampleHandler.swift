@@ -31,6 +31,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
     /// App and pay of offers already notified, and when: the same card read again (it slid away and back, or a digit of
     /// its miles was misread) is not another offer (user, Oct 21: "way too many verdicts").
     private var notifiedOffers: [String: Date] = [:]
+    /// A map that couldn't be read yet: run again on the next frame of the same offer (only touched on `processing`).
+    private var mapRetry: (fingerprint: String, attempt: Int, run: (CIImage) -> Void)?
     /// The last few readings of the card on screen (8 s): an offer goes out when one reading of app, pay, and miles
     /// has at least two votes and more than any other (user, Oct 21: vote across reads).
     private var recentReads: [(fingerprint: String, at: Date)] = []
@@ -225,6 +227,11 @@ final class SampleHandler: RPBroadcastSampleHandler {
         status.offersRead += 1
         if firstSeen[summary.fingerprint] == nil { firstSeen[summary.fingerprint] = capturedAt }
         if firstSeen.count > 200 { firstSeen = firstSeen.filter { capturedAt.timeIntervalSince($0.value) < 3600 } }
+        // Still the offer whose map couldn't be read: look at the map again in this newer frame (Oct 24).
+        if let retry = mapRetry, retry.fingerprint == summary.fingerprint {
+            mapRetry = nil
+            retry.run(frame)
+        }
         guard summary.fingerprint != notifiedFingerprint else { return }
         // Votes across the last reads (user, Oct 21: "this app doesn't work if reading isn't perfect"): a misread digit
         // rarely repeats, so the reading most frames agree on, at least twice and ahead of any other, goes out.
@@ -320,10 +327,28 @@ final class SampleHandler: RPBroadcastSampleHandler {
             trace.append("drop-off text on card")
             return fallback(nil)
         }
+        // The map is read from this frame, and again from the next ones (up to 3 looks, ~6 s) while it shows nothing
+        // usable (user, Oct 24: zoomed-out maps; the export showed half of map readings found no pins and no towns — the
+        // map was still loading or zooming, and the reader never looked again). A zoom-in during those seconds is used.
+        func readMap(_ frame: CIImage, attempt: Int) {
+        func lookAgain(_ reason: String) {
+            guard attempt < 3, !delivered else { return fallback(reason) }
+            trace.append("look \(attempt): \(reason)")
+            let fingerprint = summary.fingerprint
+            self.mapRetry = (fingerprint, attempt + 1, { next in readMap(next, attempt: attempt + 1) })
+            // The card went away: use what there is.
+            self.processing.asyncAfter(deadline: .now() + 4) {
+                if let retry = self.mapRetry, retry.fingerprint == fingerprint, retry.attempt == attempt + 1 {
+                    self.mapRetry = nil
+                    fallback(reason)
+                }
+            }
+        }
         guard let map = mapAnalysis(of: frame, summary: summary, reader: reader) else {
             trace.append("map image unavailable")
             return fallback("map could not be read")
         }
+        if map.pins == 0 && map.labels.isEmpty { return lookAgain("empty map") }
         mapJSON = map.json
         trace.append("map labels read: " + (map.labels.joined(separator: "/").isEmpty ? "none" : map.labels.joined(separator: "/")))
         router.mapPlaces(labels: map.labels, pickup: summary.pickupQuery, pickupName: summary.pickupName) { places, pickupPlace in
@@ -336,7 +361,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
                 if let debug = located?.debug { trace.append(debug) }
                 mapRoles = located?.screenJSON
                 mapCurrent = located?.current
-                guard let located, !located.dropoffs.isEmpty else { return fallback(located?.reason ?? "map could not be read") }
+                guard let located, !located.dropoffs.isEmpty else { return lookAgain(located?.reason ?? "map could not be read") }
                 // The map's store -> drop-offs must fit the app's own trip miles; if they don't, the pins were misread
                 // and the map is not used (a bound verdict instead of a wrong one).
                 func routeReturn() {
@@ -367,6 +392,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
                 }
             }
         }
+        }
+        readMap(frame, attempt: 1)
     }
 
     /// Saves the refined offer (list + journal) and replaces the stage-1 notification with the real numbers. "UPDATE"

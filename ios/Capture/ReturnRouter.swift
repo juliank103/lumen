@@ -362,9 +362,12 @@ final class ReturnRouter: NSObject, CLLocationManagerDelegate {
         request.naturalLanguageQuery = name
         request.region = area
         request.resultTypes = .address
+        let center = CLLocation(latitude: searchCenter.latitude, longitude: searchCenter.longitude)
         MKLocalSearch(request: request).start { response, _ in
+            // Only a town near here: a map shows the area around the offer (Oct 24: "Reading" matched a far-away town).
             let match = response?.mapItems.first { item in
                 [item.placemark.locality, item.name].compactMap { $0 }.contains { $0.caseInsensitiveCompare(name) == .orderedSame }
+                    && (item.placemark.location.map { $0.distance(from: center) <= 65_000 } ?? false)
             }
             completion(match.map { ($0.placemark.coordinate.latitude, $0.placemark.coordinate.longitude) })
         }

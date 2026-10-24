@@ -32,6 +32,8 @@ final class OfferReader {
     struct MapAnalysis {
         let json: String
         let labels: [String]
+        /// Pins found (0 usually means the map hadn't loaded or was mid-zoom).
+        var pins: Int = 0
     }
 
     /// Drop-off coordinates read off the map, with the position uncertainty in miles; or why there are none.
@@ -141,7 +143,8 @@ final class OfferReader {
               let data = text.data(using: .utf8),
               let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
         let labels = (object["labels"] as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }
-        return MapAnalysis(json: text, labels: labels)
+        let pins = ((object["found"] as? [String: Any])?["pins"] as? [Any])?.count ?? 0
+        return MapAnalysis(json: text, labels: labels, pins: pins)
     }
 
     /// places: matched town labels as [text: (lat, lon)]; pickup: the restaurant's coordinate if its address was found.
