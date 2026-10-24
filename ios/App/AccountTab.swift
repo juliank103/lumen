@@ -7,6 +7,7 @@ struct AccountTab: View {
     @ObservedObject private var shifts = ShiftStore.shared
     @AppStorage("vehicleCostCentsPerMile") private var costPerMile = 0
     @AppStorage("keepReadingData") private var keepReadingData = true
+    @AppStorage("reader2Trial") private var reader2Trial = false
     @State private var editingDeduction = false
     @State private var deductionText = ""
     @AppStorage(AutoSteps.enabledKey) private var autoSteps = true
@@ -95,6 +96,9 @@ struct AccountTab: View {
                     // Reading data (user, Oct 21): card text and what the map reader saw, to keep improving the reader.
                     Toggle("Save reading data", isOn: $keepReadingData)
                         .onChange(of: keepReadingData) { _, on in if !on { model.trimReadingData(force: true) } }
+                    // Reader 2 trial (Oct 24): Apple's structured document reader runs alongside, once per offer.
+                    Toggle("Reader 2 trial", isOn: $reader2Trial)
+                        .onChange(of: reader2Trial) { _, on in Bridge.publish("reader2-trial", Data((on ? "on" : "off").utf8)) }
                     NavigationLink { GridwiseImportView() } label: { Label("Import from Gridwise", systemImage: "square.and.arrow.down.on.square") }
                     NavigationLink("Privacy") { PrivacyView() }
                 } header: {
@@ -313,8 +317,14 @@ struct AIProbeSection: View {
 
     @ViewBuilder private func results(_ r: AIProbe.Result) -> some View {
         row("Answered", "\(r.answered) of \(r.calls)" + (r.seconds.isEmpty ? "" : String(format: " · %.1f s each", r.seconds.reduce(0, +) / Double(r.seconds.count))))
+        if let model = r.model { row("Model", model + (r.contextSize.map { " · \($0) tokens" } ?? "")) }
+        if let vision = r.vision { row("Reads pictures", vision ? "Yes" : "No") }
         if let extracted = r.extracted { row("Read the test card", extracted) }
         if let grounded = r.grounded { row("Numbers match the card", grounded ? "Yes" : "No — it changed something") }
+        if let image = r.imageExtracted {
+            row("Read the card picture", image + (r.imageSeconds.map { String(format: " · %.1f s", $0) } ?? ""))
+        }
+        if let grounded = r.imageGrounded { row("Picture numbers match", grounded ? "Yes" : "No — it changed something") }
         if let error = r.firstError { Text(error).font(.caption.monospaced()).foregroundStyle(.secondary) }
         Text(r.at.formatted(date: .abbreviated, time: .shortened)).font(.caption2).foregroundStyle(.secondary)
     }

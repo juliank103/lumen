@@ -268,6 +268,19 @@ final class SampleHandler: RPBroadcastSampleHandler {
         // One notification per offer, with the finished verdict (user, Oct 21: "no verdict … until the calculations are
         // done"). The quick worst-case verdict is still worked out for the journal (prediction vs refined), not shown.
         let preliminary = (try? reader.preliminary(summary, credit: router.recentCredit)) ?? (word: "Unreadable", notice: "Check offer")
+        // Reader 2 trial: Apple's structured document reader on the card, alongside (Oct 24). A copy of the card region
+        // is taken first so the capture frame isn't held while Vision works.
+        let docBox = DocReadBox()
+        if DocReader.trialOn {
+            let extent = frame.extent
+            let cardHeight = extent.height * CGFloat(1 - min(0.9, max(0.3, summary.mapBottom)))
+            let card = frame.cropped(to: CGRect(x: extent.minX, y: extent.minY, width: extent.width, height: cardHeight))
+            let scale = min(1, 1000 / extent.width)
+            let small = card.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            if let copy = CIContext(options: [.cacheIntermediates: false]).createCGImage(small, from: small.extent) {
+                Task.detached { docBox.set(await DocReader.read(CIImage(cgImage: copy))) }
+            }
+        }
         let firstNotifiedAt = Date()
 
         // Stage 2: refined verdict.
@@ -305,6 +318,9 @@ final class SampleHandler: RPBroadcastSampleHandler {
                         // Reading data for every offer (user, Oct 21: "We can do 1"): the card's text and what the map reader
                         // saw on screen — never coordinates, street names, or the drop-off places worked out from them.
                         extra["cardLines"] = Self.cardText(cardLines, below: summary.mapBottom)
+                        if let doc = docBox.value, let data = try? JSONEncoder().encode(doc) {
+                            extra["docRead"] = String(decoding: data, as: UTF8.self)
+                        }
                         if let snapshot = mapJSON.flatMap({ Self.mapSnapshot($0, roles: mapRoles) }) { extra["mapSnapshot"] = snapshot }
                         guard var finalized = try? reader.finalize(summary, route: route, credit: credit, note: note,
                                                                    debug: trace.joined(separator: " · "), at: seenAt, extra: extra) else { return }

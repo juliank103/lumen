@@ -54,6 +54,9 @@ struct LiveOffer: Codable, Identifiable {
     /// map reader saw on screen (pins, icons, dot, town labels; no coordinates). Kept 30 days; off in Account.
     let cardLines: [String]?
     let mapSnapshot: String?
+    /// Reader 2 trial (Oct 24): what Apple's structured document reader found on the card, as JSON
+    /// {payCents: [...], milliMiles: [...], minutes: [...], ms}, to compare with the reader's fields.
+    let docRead: String?
     let headline: String
     let detail: String
     let fingerprint: String
