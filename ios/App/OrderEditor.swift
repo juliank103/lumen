@@ -41,6 +41,7 @@ struct OrderEditor: View {
     @State private var finished = false
     @State private var loaded = false
     @State private var steps: [StepEdit] = []
+    @State private var etaText = ""
     /// The stored outcome ("cancelled by customer"), kept when the picker isn't changed.
     @State private var originalOutcome: String?
 
@@ -123,6 +124,18 @@ struct OrderEditor: View {
                         Text("Stops")
                     }
                 }
+                // The app's time estimate (user, Oct 23: Grubhub gives it only after you accept).
+                Section {
+                    HStack {
+                        Text(Theme.appName(platform) + "'s time")
+                        Spacer()
+                        TextField("min", text: $etaText).keyboardType(.numberPad).multilineTextAlignment(.trailing).frame(maxWidth: 80)
+                        Text("min").foregroundStyle(.secondary)
+                    }
+                } footer: {
+                    Text(platform == "grubhub" ? "Grubhub shows this after you accept. __APP_NAME__ learns Grubhub times from it."
+                         : "What the app said the order would take.")
+                }
                 Section {
                     DatePicker("Accepted", selection: $acceptedAt, in: ...Date())
                     if finished {
@@ -144,7 +157,7 @@ struct OrderEditor: View {
                                                    ended: finished ? (outcome == picked(originalOutcome) ? originalOutcome : outcome) : nil,
                                                    acceptedAt: acceptedAt, endedAt: finished ? endedAt : nil,
                                                    storeEdits: stores.map { ($0.from, $0.name) }, dropoffs: dropoffs,
-                                                   stepTimes: stepTimes)
+                                                   stepTimes: stepTimes, etaMinutes: Int(etaText.trimmingCharacters(in: .whitespaces)))
                         dismiss()
                     }
                     .disabled(cents == nil || stores.isEmpty)
@@ -203,6 +216,7 @@ struct OrderEditor: View {
         // Placeholder names ("Store 2") start empty so the field shows the restaurant search.
         stores = order.stores.enumerated().map { StoreEdit(from: $0.offset, name: $0.element.hasPrefix("Store ") ? "" : $0.element) }
         dropoffs = order.dropoffs
+        etaText = order.appEtaMinutes.map(String.init) ?? ""
         steps = trip.steps.filter { $0.offerId == offerId }.sorted { $0.at < $1.at }
             .map { StepEdit(id: $0.id, kind: $0.kind, stop: $0.stop, label: $0.label, original: $0.at, at: $0.at) }
         delivered = trip.count(.delivered, offerId)

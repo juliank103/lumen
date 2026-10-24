@@ -127,9 +127,19 @@ final class AppModel: ObservableObject {
         if Date().timeIntervalSince(readerHealthAt) > 300 {
             readerHealthAt = Date()
             readerHealth = ReaderHealth.compute(offers: offers)
+            updateTimeFactors()
         }
         TripActivityController.refresh(TripStore.shared.active)
         RestaurantStore.shared.update(offers: offers, trips: TripStore.shared.history + [TripStore.shared.active].compactMap { $0 })
+    }
+
+    /// How much longer each app's orders really take than estimates for offers with no time (Grubhub), for the reader.
+    private func updateTimeFactors() {
+        guard !PreviewData.isActive else { return }
+        let trips = TripStore.shared.history + [TripStore.shared.active].compactMap { $0 }
+        let input = "{\"offers\":\(ShiftEngine.json(encodable: offers.filter { !DemoData.isDemo($0.offerId) })),"
+            + "\"trips\":\(ShiftEngine.json(encodable: trips.filter { !DemoData.isDemo($0.id) }))}"
+        if let factors = ShiftEngine.decode([String: Double].self, ShiftEngine.call("timeFactorsJSON", [input])) { TimingStore.save(factors) }
     }
 
     func setRules(_ new: Rules) {

@@ -596,7 +596,13 @@
   /* Minutes from now to the last drop-off. The card's own time when shown; else an Apple Maps drive time for the trip
    * (route.tripDriveMinutes: here → pickup → drop-offs) plus assumed stop time; else the trip's miles at the average
    * speed of the return or drive-back route plus stop time. */
-  function tripMinutes(summary, route, ret, credit) {
+  /* Minutes to drive `milliMiles` at another route's average speed, kept between 18 and 45 mph: a short hop through town
+   * once gave 7 mph and a 117-minute Grubhub trip that took 52 (Oct 23 export). */
+  function atSpeed(milliMiles, sampleMilliMiles, sampleMinutes) {
+    const mph = Math.min(45, Math.max(18, sampleMinutes > 0 ? (sampleMilliMiles / 1000) / (sampleMinutes / 60) : 25));
+    return Math.round(milliMiles / 1000 / mph * 60);
+  }
+  function tripMinutes(summary, route, ret, credit, factor) {
     if (summary.appMinutes !== null) return { minutes: summary.appMinutes, estimated: false, note: null };
     const valid = v => Number.isSafeInteger(v) && v >= 0;
     const pickups = (summary.routing && summary.routing.pickupCount) || 1, drops = summary.orderCount || 1;
@@ -604,14 +610,16 @@
     let drive = null, how = null;
     if (route && valid(route.tripDriveMinutes)) { drive = route.tripDriveMinutes; how = 'Apple Maps drive'; }
     else if (route && valid(route.returnMinutes) && ret > 0 && route.kind !== 'worst_case') {
-      drive = Math.round(summary.outboundMilliMiles * route.returnMinutes / ret); how = 'app miles at the return route’s speed';
+      drive = atSpeed(summary.outboundMilliMiles, ret, route.returnMinutes); how = 'app miles at the return route’s speed';
     } else if (route && valid(route.creditMinutes) && credit > 0) {
-      drive = Math.round(summary.outboundMilliMiles * route.creditMinutes / credit); how = 'app miles at the drive-back route’s speed';
+      drive = atSpeed(summary.outboundMilliMiles, credit, route.creditMinutes); how = 'app miles at the drive-back route’s speed';
     }
     if (drive === null) return { minutes: null, estimated: true, note: null };
-    return { minutes: drive + stops, estimated: true,
+    // Your own orders from this app took this much longer (or shorter) than estimates like this one (Oct 23).
+    const k = typeof factor === 'number' && factor > 0 ? factor : 1;
+    return { minutes: Math.round((drive + stops) * k), estimated: true,
       note: 'Trip time estimated: ' + how + ' ' + drive + ' min + ' + stops + ' min for stops (assumed ' + PICKUP_STOP_MINUTES +
-        ' per pickup, ' + DROPOFF_STOP_MINUTES + ' per drop-off)' };
+        ' per pickup, ' + DROPOFF_STOP_MINUTES + ' per drop-off)' + (k !== 1 ? ', × ' + k + ' from your past orders' : '') };
   }
 
   /* route.creditMilliMiles / creditMinutes: the drive from the driver's position back to __HOME_NAME__. The user always
@@ -744,7 +752,7 @@
     // Minutes the same way: the credit cancels at most the return drive's minutes.
     const creditMinutes = credit && route && valid(route.creditMinutes)
       ? Math.min(Math.round(route.creditMinutes * credit / rawCredit), valid(route.returnMinutes) ? route.returnMinutes : Infinity) : 0;
-    const trip = tripMinutes(summary, route, ret, rawCredit);
+    const trip = tripMinutes(summary, route, ret, rawCredit, s.timeFactors && s.timeFactors[summary.platform]);
     if (trip.note) out.tripTimeNote = trip.note;
     out.tripMinutes = trip.minutes; out.tripMinutesEstimated = trip.minutes === null ? null : trip.estimated;
     if (valid(route.returnMinutes)) out.returnMinutes = route.returnMinutes;

@@ -178,7 +178,8 @@ final class OfferReader {
 
     /// The user's rules (default $1 per total mile and $25/hour gross), edited in the app (Account) and read from the
     /// App Group for every offer.
-    static var settingsJSON: String { RulesStore.current.settingsJSON }
+    /// The rules plus trip-time corrections learned from your orders (TimingStore, Oct 23).
+    static var settingsJSON: String { TimingStore.settingsJSON(RulesStore.current) }
 
     /// Returns nil when the screen is not a recognized offer card. Throws only if the reader itself fails.
     /// clockText: the status-bar clock as read on screen ("5:11"); preferred over the phone clock for "Deliver by".

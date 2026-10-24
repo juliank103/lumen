@@ -80,6 +80,9 @@ struct Trip: Codable, Identifiable, Equatable {
         var predictedHourlyCents: Int? = nil
         var predictedTripMinutes: Int? = nil
         var predictedReturnMinutes: Int? = nil
+        /// The app's own time estimate for the order, entered by the driver (user, Oct 23: Grubhub shows it only after
+        /// you accept). Used for the order's predicted $/hr and to learn how long that app's orders take.
+        var appEtaMinutes: Int? = nil
 
         /// Pace including the drive back (the predicted return minutes), comparable with the verdict's $/hr.
         var paceWithReturnCents: Int? {
@@ -477,7 +480,8 @@ final class TripStore: ObservableObject {
     /// `stepTimes`: step id → its corrected time, or nil to remove the step (user, Oct 23: fixing a finished order's
     /// stops — Raising Cane's was marked arrived and left before the driver got there, skewing waits and times).
     func editOrder(_ offerId: String, platform: String, payCents: Int, ended: String?, acceptedAt: Date, endedAt: Date?,
-                   storeEdits: [(from: Int?, name: String)], dropoffs: Int, stepTimes: [String: Date?] = [:], at now: Date = Date()) {
+                   storeEdits: [(from: Int?, name: String)], dropoffs: Int, stepTimes: [String: Date?] = [:],
+                   etaMinutes: Int? = nil, at now: Date = Date()) {
         let names = storeEdits.enumerated().map { index, edit -> String in
             let name = edit.name.trimmingCharacters(in: .whitespaces)
             return name.isEmpty ? "Store \(index + 1)" : name
@@ -498,6 +502,7 @@ final class TripStore: ObservableObject {
             }
             order.platform = platform
             order.acceptedAt = min(acceptedAt, now)
+            order.appEtaMinutes = etaMinutes.flatMap { $0 > 0 && $0 < 300 ? $0 : nil }
             var stepEvents: [[String: Any]] = []
             trip.steps = trip.steps.compactMap { step in
                 guard step.offerId == offerId, let change = stepTimes[step.id] else { return step }
@@ -542,6 +547,7 @@ final class TripStore: ObservableObject {
                                          "acceptedAt": Self.localFormatter.string(from: order.acceptedAt)]
             if let endedAt = order.endedAt { fields["endedAt"] = Self.localFormatter.string(from: endedAt) }
             if let outcome = order.ended { fields["ended"] = outcome }
+            if let eta = order.appEtaMinutes { fields["appEtaMinutes"] = eta }
             OfferJournal.appendEvents([event("order_edited", offerId, now, trip.id, fields)])
             return true
         }

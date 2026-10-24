@@ -1062,19 +1062,58 @@
     const byOffer = {};
     for (const o of offers) byOffer[o.offerId || o.id] = o;
     const avg = list => (list.length ? Math.round(list.reduce((a, b) => a + b, 0) / list.length) : null);
+    // Predicted vs actual on the same footing (user, Oct 23: "make sure all the logic is sound"): the verdict's $/hr counts
+    // the drive back (minus the part you were driving anyway), so the actual adds the same drive back to the order's time.
+    // Only orders with a prediction count, so both averages cover the same orders.
     const pred = [], act = [], followed = [], against = [];
     for (const trip of input.trips || []) for (const order of trip.orders || []) {
       const offer = byOffer[order.offerId];
-      if (!offer || !appOk(offer) || !timeOk(offer) || order.ended !== 'completed' || !order.endedAt) continue;
-      const seconds = (ms(order.endedAt) - ms(order.acceptedAt)) / 1000;
+      if (!offer || !appOk(offer) || !timeOk(offer) || order.ended !== 'completed' || !order.endedAt || !valid(offer.hourlyCents)) continue;
+      const back = Math.max(0, (valid(offer.returnMinutes) ? offer.returnMinutes : 0) - (valid(offer.creditMinutes) ? offer.creditMinutes : 0));
+      const seconds = (ms(order.endedAt) - ms(order.acceptedAt)) / 1000 + back * 60;
       if (!(seconds >= 300)) continue;
       const actual = order.payCents * 3600 / seconds;
-      act.push(actual);
-      if (valid(offer.hourlyCents)) pred.push(offer.hourlyCents);
+      act.push(actual); pred.push(offer.hourlyCents);
       (verdictOf(offer.notice) === 'decline' ? against : followed).push(actual);
     }
     const payoff = { orders: act.length, predicted: avg(pred), actual: avg(act),
       followed: { orders: followed.length, actual: avg(followed) }, against: { orders: against.length, actual: avg(against) } };
+
+    // Am I too picky? (user, Oct 23). While you wait, an offer is worth taking when it pays more per hour than you actually
+    // average online (all earnings ÷ all online hours, waiting included): it raises the average. Count the offers you
+    // passed that beat that average, and which of your rules turned them down.
+    const takenIds = new Set(ordersOf(input.trips).map(o => o.offerId));
+    const span = chosen.length ? [Math.min.apply(null, chosen.map(o => ms(o.seenAt))), Date.now()] : null;
+    const online = span ? rangeMetrics(Object.assign({ now: new Date().toISOString() }, input), new Date(span[0] - 86400000).toISOString(), new Date().toISOString()) : null;
+    const average = online && online.onlineSeconds >= 3600 ? Math.round(online.earningsCents * 3600 / online.onlineSeconds) : null;
+    let picky = { averageHourlyCents: average, passed: 0, beatAverage: 0, failedPerMile: 0, failedHourly: 0, verdict: null };
+    if (average !== null) {
+      const passed = chosen.filter(o => !takenIds.has(o.offerId || o.id) && valid(o.hourlyCents));
+      const beat = passed.filter(o => o.hourlyCents > average);
+      const perMileOk = o => valid(o.effectiveMilliMiles) && o.payCents * 1000 >= rate * o.effectiveMilliMiles;
+      const share = passed.length ? beat.length / passed.length : 0;
+      picky = { averageHourlyCents: average, passed: passed.length, beatAverage: beat.length,
+        failedPerMile: beat.filter(o => !perMileOk(o)).length, failedHourly: beat.filter(perMileOk).length,
+        verdict: passed.length < 20 ? null : share >= 0.25 ? 'too_picky' : share >= 0.1 ? 'a_little' : 'fine' };
+    }
+
+    // Time estimates per app (user, Oct 23: Grubhub shows no time until you accept): __APP_NAME__'s trip time, the app's ETA
+    // you entered, and how long the order really took (accept → last drop-off), on the same orders.
+    const times = {};
+    for (const trip of input.trips || []) for (const order of trip.orders || []) {
+      if (order.ended !== 'completed' || !order.endedAt || !appOk(order)) continue;
+      const took = (ms(order.endedAt) - ms(order.acceptedAt)) / 60000;
+      if (!(took >= 3)) continue;
+      const t = times[order.platform] = times[order.platform] || { orders: 0, actual: 0, guessed: 0, guessedOrders: 0, eta: 0, etaOrders: 0 };
+      t.orders++; t.actual += took;
+      if (valid(order.predictedTripMinutes)) { t.guessed += order.predictedTripMinutes; t.guessedOrders++; }
+      if (valid(order.appEtaMinutes)) { t.eta += order.appEtaMinutes; t.etaOrders++; }
+    }
+    for (const t of Object.values(times)) {
+      t.actual = Math.round(t.actual / t.orders);
+      t.guessed = t.guessedOrders ? Math.round(t.guessed / t.guessedOrders) : null;
+      t.eta = t.etaOrders ? Math.round(t.eta / t.etaOrders) : null;
+    }
 
     const db = input.restaurants && input.restaurants.restaurants ? input.restaurants : null;
     let restaurants = { best: [], worst: [] };
@@ -1098,7 +1137,7 @@
       const worst = rows.slice().sort((a, b) => a.rate - b.rate || b.offers - a.offers).filter(r => !best.includes(r)).slice(0, 5);
       restaurants = { best, worst };
     }
-    return { mix, grid, perMile, payoff, restaurants };
+    return { mix, grid, perMile, payoff, picky, times, restaurants };
   }
 
   /* Shift planner (user, Oct 23): "To make $X this week, work these hours." Each weekday-hour's $/hr from history (pay of
@@ -1157,15 +1196,41 @@
     return out;
   }
 
+  /* How much longer (or shorter) orders really take than __APP_NAME__'s estimated trip time, per app, for offers that showed
+   * no time (Grubhub, user Oct 23). From finished orders whose offer had an estimated time: the median of real minutes
+   * (accept → last drop-off, or the app's ETA you entered when there's no finish) ÷ the estimate. Needs 3 orders;
+   * kept between 0.7 and 2. Returns { grubhub: 1.25, … } — the reader multiplies its estimate by it. */
+  function timeFactors(input) {
+    const byOffer = {};
+    for (const o of input.offers || []) byOffer[o.offerId || o.id] = o;
+    const ratios = {};
+    for (const order of ordersOf(input.trips)) {
+      const offer = byOffer[order.offerId];
+      // Estimated: the offer showed no time (the reader left a note on how it worked one out).
+      if (!offer || !(offer.tripMinutesEstimated || offer.tripTimeNote) || !valid(offer.tripMinutes) || offer.tripMinutes < 3) continue;
+      const took = order.ended === 'completed' && order.endedAt ? (ms(order.endedAt) - ms(order.acceptedAt)) / 60000
+        : valid(order.appEtaMinutes) ? order.appEtaMinutes : null;
+      if (!(took >= 3)) continue;
+      (ratios[order.platform] = ratios[order.platform] || []).push(took / offer.tripMinutes);
+    }
+    const out = {};
+    for (const [platform, list] of Object.entries(ratios)) {
+      if (list.length < 3) continue;
+      list.sort((a, b) => a - b);
+      out[platform] = Math.round(Math.min(2, Math.max(0.7, list[Math.floor(list.length / 2)])) * 100) / 100;
+    }
+    return out;
+  }
+
   const json = f => (...args) => JSON.stringify(f(...args.map(a => (typeof a === 'string' ? JSON.parse(a) : a))));
   const api = { METERS_PER_MILE, SAME_PLACE_MILES, normalizeName, similarity, distanceMiles, emptyDb, matchRestaurant, updateRestaurants,
     mergeRestaurants, renameRestaurant, mergeSuggestions, storeVisits, restaurantStats, mealPeriod, shiftMetrics, toCSV, exportTables,
-    rangeMetrics, weekStats, dayPart, dominantPart, DAY_PARTS, zoneHeat, offerWorth, parseGridwise, parseCSV, goalStatus, goals, readerHealth, breakdown, verdictOf, shiftPlan,
+    rangeMetrics, weekStats, dayPart, dominantPart, DAY_PARTS, zoneHeat, offerWorth, parseGridwise, parseCSV, goalStatus, goals, readerHealth, breakdown, verdictOf, shiftPlan, timeFactors,
     // JSON bridges for the iPhone (every argument is JSON text).
     updateRestaurantsJSON: json(updateRestaurants), mergeRestaurantsJSON: json(mergeRestaurants), renameRestaurantJSON: json(renameRestaurant),
     mergeSuggestionsJSON: json(mergeSuggestions), restaurantStatsJSON: json(restaurantStats), shiftMetricsJSON: json(shiftMetrics),
     exportTablesJSON: json(exportTables), weekStatsJSON: json(weekStats), zoneHeatJSON: json(zoneHeat), parseGridwiseJSON: json(parseGridwise), goalsJSON: json(goals), readerHealthJSON: json(readerHealth),
-    breakdownJSON: json(breakdown), shiftPlanJSON: json(shiftPlan) };
+    breakdownJSON: json(breakdown), shiftPlanJSON: json(shiftPlan), timeFactorsJSON: json(timeFactors) };
   root.Shift = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -14,10 +14,16 @@ struct Breakdown: Decodable, Equatable {
     struct Payoff: Decodable, Equatable { let orders: Int; let predicted: Int?; let actual: Int?; let followed: Side; let against: Side }
     struct Place: Decodable, Equatable { let name: String; let offers: Int; let good: Int; let rate: Int; let waitMinutes: Double? }
     struct Places: Decodable, Equatable { let best: [Place]; let worst: [Place] }
+    struct Picky: Decodable, Equatable {
+        let averageHourlyCents: Int?; let passed: Int; let beatAverage: Int; let failedPerMile: Int; let failedHourly: Int; let verdict: String?
+    }
+    struct Times: Decodable, Equatable { let orders: Int; let actual: Int; let guessed: Int?; let eta: Int? }
     let mix: Mix
     let grid: [Cell]
     let perMile: PerMile
     let payoff: Payoff
+    let picky: Picky
+    let times: [String: Times]
     let restaurants: Places
 }
 
@@ -41,7 +47,9 @@ struct BreakdownView: View {
                         mixCard(data.mix)
                         gridCard(data.grid)
                         perMileCard(data.perMile)
+                        pickyCard(data.picky)
                         payoffCard(data.payoff)
+                        timesCard(data.times)
                         placesCard(data.restaurants)
                     } else {
                         Text("No offers yet.").foregroundStyle(Theme.secondaryText)
@@ -101,9 +109,12 @@ struct BreakdownView: View {
 
     // MARK: Cards
 
-    private func card<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
+    private func card<Content: View>(_ title: String, _ caption: String? = nil, @ViewBuilder _ content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title).font(.headline)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.headline)
+                if let caption { Text(caption).font(.footnote).foregroundStyle(Theme.secondaryText) }
+            }
             content()
         }
         .padding(16)
@@ -114,7 +125,7 @@ struct BreakdownView: View {
     private func mixCard(_ mix: Breakdown.Mix) -> some View {
         let slices: [(String, Int, Color)] = [("Accept", mix.accept, Theme.neonGreen), ("Maybe", mix.maybe, Theme.neonYellow),
                                               ("Decline", mix.decline, Theme.neonRed)] + (mix.unread > 0 ? [("Unread", mix.unread, Theme.track)] : [])
-        return card("Offers") {
+        return card("Offers", "Every offer __APP_NAME__ read, by its verdict.") {
             HStack(spacing: 20) {
                 Chart(slices, id: \.0) { slice in
                     SectorMark(angle: .value("Offers", slice.1), innerRadius: .ratio(0.62), angularInset: 1.5)
@@ -144,7 +155,7 @@ struct BreakdownView: View {
     /// Day × hour: brighter where more offers were worth accepting.
     private func gridCard(_ grid: [Breakdown.Cell]) -> some View {
         let most = max(1, grid.map(\.good).max() ?? 1)
-        return card("When the good offers come") {
+        return card("When the good offers come", "Brighter squares had more offers that met your rules.") {
             VStack(alignment: .leading, spacing: 3) {
                 ForEach([1, 2, 3, 4, 5, 6, 0], id: \.self) { day in
                     HStack(spacing: 2) {
@@ -169,7 +180,7 @@ struct BreakdownView: View {
     }
 
     private func perMileCard(_ spread: Breakdown.PerMile) -> some View {
-        card("$/mi with the drive back") {
+        card("$/mi with the drive back", "Pay ÷ all the miles, drive back included. Green bars meet your rate.") {
             PerMileChart(buckets: spread.buckets, rate: model.rules.centsPerMile)
             HStack {
                 if let median = spread.median { stat(String(format: "$%.2f", Double(median) / 100), "middle offer") }
@@ -179,7 +190,7 @@ struct BreakdownView: View {
     }
 
     private func payoffCard(_ payoff: Breakdown.Payoff) -> some View {
-        card("Did taking it pay off") {
+        card("Did taking it pay off", "Orders you finished: the $/hr __APP_NAME__ predicted and what you made. Both count the drive back.") {
             if payoff.orders == 0 {
                 Text("Finished orders show up here.").foregroundStyle(Theme.secondaryText)
             } else {
@@ -187,7 +198,7 @@ struct BreakdownView: View {
                     stat(payoff.predicted.map(TripFormat.hourly) ?? "—", "predicted")
                     stat(payoff.actual.map(TripFormat.hourly) ?? "—", "actual")
                 }
-                Text("\(payoff.orders) finished orders").font(.footnote).foregroundStyle(Theme.secondaryText)
+                Text(payoff.orders == 1 ? "1 order" : "\(payoff.orders) orders").font(.footnote).foregroundStyle(Theme.secondaryText)
                 if payoff.against.orders > 0 {
                     Divider()
                     row("Took a Decline", payoff.against)
@@ -197,8 +208,63 @@ struct BreakdownView: View {
         }
     }
 
+    /// Am I too picky? (user, Oct 23). While you wait, an offer that pays more per hour than you actually average online
+    /// raises the average, so passing it costs you.
+    private func pickyCard(_ picky: Breakdown.Picky) -> some View {
+        card("Am I too picky?", "Offers you passed that paid more per hour than you really average online, waiting included.") {
+            if let average = picky.averageHourlyCents, let verdict = picky.verdict {
+                let (headline, color, advice): (String, Color, String) = switch verdict {
+                case "too_picky": ("Yes, a bit too picky", Theme.neonYellow,
+                                   "Taking these while you wait would likely raise your average. Try a lower hourly target.")
+                case "a_little": ("A little", Theme.neonYellow, "Some offers you passed beat your average.")
+                default: ("No, about right", Theme.neonGreen, "Your rules match what your market pays.")
+                }
+                Text(headline).font(.title2.weight(.heavy)).foregroundStyle(color)
+                HStack {
+                    stat(TripFormat.hourly(average), "your real average")
+                    stat(percent(picky.beatAverage, of: picky.passed), "of passed offers beat it")
+                }
+                Text("\(picky.beatAverage) of \(picky.passed) passed offers. \(picky.failedHourly) of them met \(model.rules.perMileText)/mi "
+                     + "and missed only \(model.rules.hourlyText); \(picky.failedPerMile) were under \(model.rules.perMileText)/mi.")
+                    .font(.footnote).foregroundStyle(Theme.secondaryText)
+                Text(advice).font(.subheadline)
+            } else {
+                Text("Needs an hour online and 20 passed offers with a $/hr.").foregroundStyle(Theme.secondaryText)
+            }
+        }
+    }
+
+    /// Trip times per app: __APP_NAME__'s prediction, the app's ETA you entered, and how long orders really took (Oct 23).
+    private func timesCard(_ times: [String: Breakdown.Times]) -> some View {
+        card("Trip times", "Average minutes from accepting to the last drop-off, on orders you finished.") {
+            if times.isEmpty {
+                Text("Finished orders show up here.").foregroundStyle(Theme.secondaryText)
+            } else {
+                Grid(alignment: .trailing, horizontalSpacing: 14, verticalSpacing: 8) {
+                    GridRow {
+                        Text("").gridColumnAlignment(.leading)
+                        Text("Predicted"); Text("App said"); Text("Took")
+                    }
+                    .font(.caption).foregroundStyle(Theme.secondaryText)
+                    ForEach(["doordash", "uber_eats", "grubhub"].filter { times[$0] != nil }, id: \.self) { app in
+                        let t = times[app]!
+                        GridRow {
+                            HStack(spacing: 6) { AppLogo(platform: app, size: 18); Text(Theme.appName(app)) }
+                            Text(t.guessed.map { "\($0) min" } ?? "—")
+                            Text(t.eta.map { "\($0) min" } ?? "—")
+                            Text("\(t.actual) min").fontWeight(.bold)
+                        }
+                        .font(.subheadline.monospacedDigit())
+                    }
+                }
+                Text("Enter the app's time on an order (tap it, Edit) and __APP_NAME__ learns how long that app's orders take.")
+                    .font(.footnote).foregroundStyle(Theme.secondaryText)
+            }
+        }
+    }
+
     private func placesCard(_ places: Breakdown.Places) -> some View {
-        card("Restaurants") {
+        card("Restaurants", "Share of each store's offers that met your rules, and your average wait there.") {
             if places.best.isEmpty && places.worst.isEmpty {
                 Text("Restaurants with 3+ offers show up here.").foregroundStyle(Theme.secondaryText)
             } else {
@@ -262,7 +328,9 @@ struct BreakdownView: View {
         let offers = PreviewData.isActive ? PreviewData.breakdownOffers : model.offers.filter { !DemoData.isDemo($0.offerId) }
         let trips = (TripStore.shared.history + [TripStore.shared.active].compactMap { $0 }).filter { !DemoData.isDemo($0.id) }
         let filters: [String: Any] = ["part": part, "weekdays": weekdays.sorted(), "platform": platform]
+        let shifts = (ShiftStore.shared.history + [ShiftStore.shared.current].compactMap { $0 }).filter { !DemoData.isDemo($0.id) }
         let input = "{\"offers\":\(ShiftEngine.json(encodable: offers)),\"trips\":\(ShiftEngine.json(encodable: trips)),"
+            + "\"shifts\":\(ShiftEngine.json(encodable: shifts)),\"entries\":\(EntryStore.shared.json),"
             + "\"restaurants\":\(RestaurantStore.shared.databaseJSON),\"filters\":\(ShiftEngine.json(filters)),"
             + "\"offsetMinutes\":\(ShiftEngine.offsetMinutes),\"centsPerMile\":\(model.rules.centsPerMile)}"
         let result = ShiftEngine.decode(Breakdown.self, ShiftEngine.call("breakdownJSON", [input]))

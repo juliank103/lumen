@@ -4,7 +4,7 @@
   const VERSION = 1;
   const PLATFORMS = ['doordash', 'uber_eats', 'grubhub'];
   const DEFAULTS = Object.freeze({ centsPerMile: 100, minimumOfferCents: null,
-    hourlyTargetCents: null, hourlyBasis: 'gross', vehicleCentsPerMile: null });
+    hourlyTargetCents: null, hourlyBasis: 'gross', vehicleCentsPerMile: null, timeFactors: null });
   const has = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
   const clone = value => JSON.parse(JSON.stringify(value));
   function assert(ok, message) { if (!ok) throw new Error(message); }
@@ -45,6 +45,11 @@
     nullableInteger(s.hourlyTargetCents, 'hourlyTargetCents', 0, 1000000);
     nullableInteger(s.vehicleCentsPerMile, 'vehicleCentsPerMile', 0, 10000);
     oneOf(s.hourlyBasis, ['gross', 'after_vehicle_expenses'], 'hourlyBasis');
+    // Learned per app from your own orders (core/shift.js timeFactors): estimated trip times × this.
+    if (s.timeFactors !== null) {
+      object(s.timeFactors, 'timeFactors');
+      for (const k of Object.keys(s.timeFactors)) assert(typeof s.timeFactors[k] === 'number' && s.timeFactors[k] >= 0.5 && s.timeFactors[k] <= 3, 'timeFactors.' + k);
+    }
     return s;
   }
   function validateRoute(r) {
