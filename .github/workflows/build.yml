@@ -45,8 +45,11 @@ jobs:
         run: |
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
           mkdir -p dist
-          f=$(find "$SDK" -path '*FoundationModels.framework*' -name '*.swiftinterface' | grep -m1 arm64)
-          [ -n "$f" ] && cp "$f" dist/FoundationModels.swiftinterface || echo "no FoundationModels interface"
+          for fw in FoundationModels Vision DataDetection; do
+            find "$SDK" -name '*.swiftinterface' -path "*$fw*" 2>/dev/null | head -5 || true
+            f=$(find "$SDK" -name '*.swiftinterface' -path "*$fw.swiftmodule*" 2>/dev/null | grep arm64 | grep -v private | head -1 || true)
+            if [ -n "$f" ]; then cp "$f" "dist/$fw.swiftinterface"; else echo "no $fw interface"; fi
+          done
       - name: Package
         run: |
           APP=build/Build/Products/Release-iphoneos/Lumen.app
