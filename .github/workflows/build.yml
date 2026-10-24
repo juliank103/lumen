@@ -45,10 +45,10 @@ jobs:
         run: |
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
           mkdir -p dist
+          # The SDK ships compiled modules only: generate each interface from the module itself.
           for fw in FoundationModels Vision DataDetection; do
-            find "$SDK" -name '*.swiftinterface' -path "*$fw*" 2>/dev/null | head -5 || true
-            f=$(find "$SDK" -name '*.swiftinterface' -path "*$fw.swiftmodule*" 2>/dev/null | grep arm64 | grep -v private | head -1 || true)
-            if [ -n "$f" ]; then cp "$f" "dist/$fw.swiftinterface"; else echo "no $fw interface"; fi
+            xcrun swift-synthesize-interface -module-name "$fw" -sdk "$SDK" -target arm64-apple-ios27.0 > "dist/$fw.swiftinterface" 2> "dist/$fw.err"               || xcrun swift-ide-test -print-module -module-to-print="$fw" -source-filename=/dev/null -sdk "$SDK" -target arm64-apple-ios27.0 > "dist/$fw.swiftinterface" 2>> "dist/$fw.err"               || true
+            wc -l "dist/$fw.swiftinterface" || true; head -3 "dist/$fw.err" || true
           done
       - name: Package
         run: |

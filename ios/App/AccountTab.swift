@@ -189,6 +189,7 @@ struct DiagnosticsView: View {
                 Button("Test a pop-up over another app (10 s)") { model.sendTestNotification(after: 10) }
             }
             AIProbeSection()
+            AIReviewSection()
             Section("Storage") {
                 row("Shared App Group", model.storageAvailable ? "Available" : "Not shared with this install")
                 // Without it, settings travel through the bridge (Oct 24); the reader confirms when it starts.
