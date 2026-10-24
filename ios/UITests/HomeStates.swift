@@ -19,7 +19,7 @@ final class HomeStates: XCTestCase {
         }
         // Open a row by its text (e.g. an offer in the Offers list).
         if let open {
-            let row = app.staticTexts[open].firstMatch
+            let row = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", open)).firstMatch
             if row.waitForExistence(timeout: 4) { row.tap(); sleep(2) }
         }
         let attachment = XCTAttachment(screenshot: app.screenshot())
