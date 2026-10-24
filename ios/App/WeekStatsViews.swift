@@ -264,13 +264,21 @@ enum ChartMetric: String, CaseIterable, Identifiable {
     /// Money metrics get the accent color (like Gridwise's green earnings bars); the rest are gray.
     var isMoney: Bool { [ChartMetric.earnings, .net, .deduction, .expenses, .perHour, .perMile].contains(self) }
 
-    /// Mileage deduction rate (user, Oct 16, like Gridwise: $0.67 per mile driven); changeable in Account.
-    static var deductionCentsPerMile: Int { UserDefaults.standard.object(forKey: "mileageDeductionCents") as? Int ?? 67 }
-
-    /// Miles __APP_NAME__ tracked × your rate, plus Gridwise's own deduction for imported days (its rate changed during the year).
+    /// Miles __APP_NAME__ tracked × the rate for the range's dates (the IRS rate by default, MileageRate), plus Gridwise's own
+    /// deduction for imported days. A week across July 1, 2026 uses each day's share at its own rate.
     static func deductionCents(_ m: RangeMetrics) -> Int {
         let tracked = max(0, m.miles.total - (m.miles.imported ?? 0))
-        return Int((tracked * Double(deductionCentsPerMile)).rounded()) + (m.importedDeductionCents ?? 0)
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let parse = { (s: String) in iso.date(from: s) ?? ISO8601DateFormatter().date(from: s) }
+        guard let from = parse(m.from), let to = parse(m.to), to > from else {
+            return Int((tracked * MileageRate.cents(on: Date())).rounded()) + (m.importedDeductionCents ?? 0)
+        }
+        // Average rate over the range's days (the miles' own days aren't in the totals).
+        var day = from, rates: [Double] = []
+        while day < to { rates.append(MileageRate.cents(on: day)); day = day.addingTimeInterval(86_400) }
+        let rate = rates.reduce(0, +) / Double(max(1, rates.count))
+        return Int((tracked * rate).rounded()) + (m.importedDeductionCents ?? 0)
     }
 }
 
@@ -323,7 +331,7 @@ struct MetricTiles: View {
             let lost = week.unassigned + week.cancelled
             return lost > 0 ? "Orders · \(lost) ended early" : "Orders"
         case .hours: return "Hours"
-        case .deduction: return String(format: "Deduction · %d¢/mi", ChartMetric.deductionCentsPerMile)
+        case .deduction: return "Deduction · " + MileageRate.text(MileageRate.cents(on: Date())) + "/mi"
         case .idle: return "Idle hours"
         case .active: return "Hours on deliveries"
         case .deadhead: return "Deadhead miles"

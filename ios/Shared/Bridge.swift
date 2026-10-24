@@ -17,9 +17,15 @@ enum Bridge {
         board.setItems([item], options: [:])
     }
 
-    /// The reader: `key`'s value, if the app published one.
+    /// The reader: `key`'s value, if the app published one. The last value read is kept in the reader's own storage, so
+    /// settings survive the pasteboard being cleared (Apple documents named pasteboards as not persistent: gone when the
+    /// app quits or the phone restarts — research, Oct 24) until the app hands them over again.
     static func read(_ key: String) -> Data? {
-        guard let board = UIPasteboard(name: name, create: false) else { return nil }
-        return board.data(forPasteboardType: type(key))
+        let cacheKey = "bridge." + key
+        if let board = UIPasteboard(name: name, create: false), let data = board.data(forPasteboardType: type(key)) {
+            if UserDefaults.standard.data(forKey: cacheKey) != data { UserDefaults.standard.set(data, forKey: cacheKey) }
+            return data
+        }
+        return UserDefaults.standard.data(forKey: cacheKey)
     }
 }

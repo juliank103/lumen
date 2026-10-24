@@ -6,7 +6,6 @@ struct AccountTab: View {
     @EnvironmentObject private var model: AppModel
     @ObservedObject private var shifts = ShiftStore.shared
     @AppStorage("vehicleCostCentsPerMile") private var costPerMile = 0
-    @AppStorage("mileageDeductionCents") private var deductionCents = 67
     @AppStorage("keepReadingData") private var keepReadingData = true
     @State private var editingDeduction = false
     @State private var deductionText = ""
@@ -68,8 +67,9 @@ struct AccountTab: View {
                         row("Vehicle cost per mile", costPerMile > 0 ? "\(costPerMile)¢" : "Not set")
                     }
                     .foregroundStyle(.primary)
-                    Button { deductionText = String(deductionCents); editingDeduction = true } label: {
-                        row("Mileage deduction", "\(deductionCents)¢ per mile")
+                    Button { deductionText = MileageRate.custom.map(String.init) ?? ""; editingDeduction = true } label: {
+                        row("Mileage deduction", MileageRate.custom.map { "\($0)¢ per mile" }
+                            ?? "IRS rate · " + MileageRate.text(MileageRate.cents(on: Date())) + " per mile")
                     }
                     .foregroundStyle(.primary)
                 }
@@ -108,11 +108,12 @@ struct AccountTab: View {
             .menuButton()
             .goalEditor(isPresented: $editingGoal)
             .alert("Mileage deduction", isPresented: $editingDeduction) {
-                TextField("Cents per mile, e.g. 67", text: $deductionText).keyboardType(.numberPad)
-                Button("Save") { deductionCents = max(0, min(200, Int(deductionText) ?? 67)) }
+                TextField("Empty for the IRS rate", text: $deductionText).keyboardType(.numberPad)
+                Button("Save") { MileageRate.custom = Int(deductionText).map { max(0, min(200, $0)) } }
+                Button("Use the IRS rate") { MileageRate.custom = nil }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("The Deduction tile on Earnings is your miles times this rate (the IRS standard mileage rate).")
+                Text("The Deduction tile on Earnings is your miles times this rate. By default it's the IRS rate for each trip's date: 70¢ in 2025, 72.5¢ for January–June 2026, 76¢ from July 1, 2026.")
             }
             .alert("Vehicle cost per mile", isPresented: $editingCost) {
                 TextField("Cents, e.g. 30", text: $costText).keyboardType(.numberPad)

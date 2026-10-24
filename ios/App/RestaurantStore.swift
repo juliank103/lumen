@@ -48,7 +48,7 @@ final class RestaurantStore: ObservableObject {
 
     /// The stores you've arrived at, with their names, for the offer reader to pin a store on an offer's map exactly
     /// (reader upgrade 3, Oct 23). Businesses only.
-    private func shareKnownPlaces() {
+    func shareKnownPlaces() {
         guard !PreviewData.isActive else { return }
         let places = restaurants.compactMap { r -> StorePlace? in
             guard r.visits > 0, let lat = r.lat, let lon = r.lon else { return nil }

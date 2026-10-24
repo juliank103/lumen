@@ -54,6 +54,7 @@ final class AppModel: ObservableObject {
         // The capture extension posts offer notifications; permission is asked here, in the app.
         _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert])
         LocationAccess.manager.requestWhenInUseAuthorization()
+        MileageRate.migrate()
         // Hand the current settings to the reader again (the bridge, when there's no App Group).
         RulesStore.save(rules)
         ReturnDestinationStore.republish()
@@ -132,6 +133,10 @@ final class AppModel: ObservableObject {
             readerHealthAt = Date()
             readerHealth = ReaderHealth.compute(offers: offers)
             updateTimeFactors()
+            // Every 5 minutes, hand the settings to the reader again: the bridge's pasteboard can be cleared.
+            RulesStore.save(rules)
+            ReturnDestinationStore.republish()
+            RestaurantStore.shared.shareKnownPlaces()
         }
         TripActivityController.refresh(TripStore.shared.active)
         RestaurantStore.shared.update(offers: offers, trips: TripStore.shared.history + [TripStore.shared.active].compactMap { $0 })
