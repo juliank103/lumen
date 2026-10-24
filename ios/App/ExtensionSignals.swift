@@ -8,6 +8,8 @@ final class ExtensionSignals: ObservableObject {
     @Published private(set) var loadedAt: Date?
     /// When the reader last confirmed it got the app's settings through the bridge.
     @Published private(set) var bridgeReadAt: Date?
+    /// When the reader last finished an Apple Intelligence test.
+    @Published private(set) var aiProbeAt: Date?
     @Published private(set) var startedAt: Date?
     @Published private(set) var lastFrameAt: Date?
     @Published private(set) var frames = 0
@@ -56,6 +58,7 @@ final class ExtensionSignals: ObservableObject {
         case .readerFailed: readerFailed = true
         case .stopReading: break   // Sent by the app itself.
         case .bridgeRead: bridgeReadAt = now
+        case .aiProbe: aiProbeAt = now
         case .finished:
             finishedAt = now
             MainActor.assumeIsolated {

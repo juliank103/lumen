@@ -6,7 +6,8 @@ enum Signal: String, CaseIterable {
     // `selfTest` is posted by the app itself to prove the signal path works on this phone.
     // `stopReading` goes the other way: the app asks the reader to end the screen broadcast (End shift, Oct 23).
     // `bridgeRead`: the reader got the app's settings through the bridge (no App Group, Oct 24).
-    case selfTest, loaded, started, frame, offer, readerFailed, finished, stopReading, bridgeRead
+    // `aiProbe`: the reader finished an Apple Intelligence test and saved the result to the bridge (Oct 24).
+    case selfTest, loaded, started, frame, offer, readerFailed, finished, stopReading, bridgeRead, aiProbe
 
     var name: String { "com.juliank103.mellodycopilot.signal." + rawValue }
 

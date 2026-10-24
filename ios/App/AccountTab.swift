@@ -188,6 +188,7 @@ struct DiagnosticsView: View {
                 Button("Send a test notification") { model.sendTestNotification(after: nil) }
                 Button("Test a pop-up over another app (10 s)") { model.sendTestNotification(after: 10) }
             }
+            AIProbeSection()
             Section("Storage") {
                 row("Shared App Group", model.storageAvailable ? "Available" : "Not shared with this install")
                 // Without it, settings travel through the bridge (Oct 24); the reader confirms when it starts.
@@ -271,3 +272,54 @@ struct PlatformQuality: View {
         }.frame(maxWidth: .infinity)
     }
 }
+
+/// Diagnostics → Apple Intelligence (Oct 24 plan, step 1): is the on-device model available, how fast and how faithfully
+/// does it read a test card here in the app, and does it work inside the screen reader while a delivery app is in front?
+struct AIProbeSection: View {
+    @EnvironmentObject private var signals: ExtensionSignals
+    @State private var app: AIProbe.Result?
+    @State private var reader: AIProbe.Result?
+    @State private var running = false
+    @State private var requested = false
+
+    var body: some View {
+        Section {
+            row("On this iPhone", AIProbe.availability())
+            Button(running ? "Testing…" : "Test in the app") {
+                running = true
+                Task {
+                    let result = await AIProbe.run(calls: 3, spacing: 1, readCard: true)
+                    await MainActor.run { app = result; running = false }
+                }
+            }
+            .disabled(running)
+            if let app { results(app) }
+            Button("Test in the screen reader") {
+                if let data = try? JSONEncoder().encode(Date()) { Bridge.publish("ai-probe-request", data) }
+                requested = true
+            }
+            if requested && reader == nil {
+                Text("Start screen reading and open DoorDash, Uber Eats or Grubhub. The test runs within a minute and takes about 2 minutes.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            if let reader { results(reader) }
+        } header: {
+            Text("Apple Intelligence")
+        }
+        .onAppear { reader = AIProbe.load(key: "ai-reader") }
+        .onChange(of: signals.aiProbeAt) { reader = AIProbe.load(key: "ai-reader") }
+    }
+
+    @ViewBuilder private func results(_ r: AIProbe.Result) -> some View {
+        row("Answered", "\(r.answered) of \(r.calls)" + (r.seconds.isEmpty ? "" : String(format: " · %.1f s each", r.seconds.reduce(0, +) / Double(r.seconds.count))))
+        if let extracted = r.extracted { row("Read the test card", extracted) }
+        if let grounded = r.grounded { row("Numbers match the card", grounded ? "Yes" : "No — it changed something") }
+        if let error = r.firstError { Text(error).font(.caption.monospaced()).foregroundStyle(.secondary) }
+        Text(r.at.formatted(date: .abbreviated, time: .shortened)).font(.caption2).foregroundStyle(.secondary)
+    }
+
+    private func row(_ label: String, _ value: String) -> some View {
+        HStack { Text(label); Spacer(); Text(value).foregroundStyle(.secondary).multilineTextAlignment(.trailing) }
+    }
+}
+

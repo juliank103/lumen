@@ -78,7 +78,10 @@ final class SampleHandler: RPBroadcastSampleHandler {
         // Keep a fresh drive-back measurement for stage-1 verdicts (one Apple Maps route per minute).
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + 5, repeating: 60)
-        timer.setEventHandler { [weak self] in self?.router.refreshCredit() }
+        timer.setEventHandler { [weak self] in
+            self?.router.refreshCredit()
+            self?.runRequestedAIProbe()
+        }
         timer.resume()
         creditTimer = timer
         processing.async {
@@ -465,6 +468,23 @@ final class SampleHandler: RPBroadcastSampleHandler {
             return OfferReader.Line(text: candidate.string, x: left + Double(box.minX) * (right - left),
                                     y: top + Double(1 - box.maxY) * (bottom - top),
                                     w: Double(box.width) * (right - left), h: Double(box.height) * (bottom - top))
+        }
+    }
+
+    /// Apple Intelligence test in the screen reader, only when asked from Diagnostics (it spends the model's budget):
+    /// 6 short calls 20 s apart while the broadcast runs — works here at all? throttled while another app is in front?
+    private var aiProbeRunning = false
+    private func runRequestedAIProbe() {
+        guard !aiProbeRunning, let data = Bridge.read("ai-probe-request"),
+              let requested = try? JSONDecoder().decode(Date.self, from: data),
+              Date().timeIntervalSince(requested) < 3600,
+              (AIProbe.load(key: "ai-reader")?.at ?? .distantPast) < requested else { return }
+        aiProbeRunning = true
+        Task.detached {
+            let result = await AIProbe.run(calls: 6, spacing: 20, readCard: false)
+            AIProbe.save(result, key: "ai-reader")
+            Signal.aiProbe.post()
+            self.processing.async { self.aiProbeRunning = false }
         }
     }
 
