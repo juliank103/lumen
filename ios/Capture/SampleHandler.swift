@@ -216,7 +216,10 @@ final class SampleHandler: RPBroadcastSampleHandler {
         // Miles unread (the fast recognizer can miss Grubhub's large numbers): read the card once more, accurately.
         if summary.outboundMilliMiles == nil, summary.fingerprint != retriedFingerprint {
             retriedFingerprint = summary.fingerprint
-            let accurate = recognize(frame, top: 1 - Double(Self.readFraction), bottom: 1, level: .accurate, maxWidth: 1000)
+            // A sharper fast pass first (iOS 27.0's accurate recognizer was reported to garble digits), then accurate.
+            let sharper = recognize(frame, top: 1 - Double(Self.readFraction), bottom: 1, level: .fast, maxWidth: 1400)
+            let accurate = (try? reader.summarize(sharper, at: capturedAt))?.outboundMilliMiles != nil ? sharper
+                : Self.latinOnly(recognize(frame, top: 1 - Double(Self.readFraction), bottom: 1, level: .accurate, maxWidth: 1000))
             if let better = try reader.summarize(accurate, at: capturedAt), better.outboundMilliMiles != nil {
                 summary = better
                 cardLines = accurate
@@ -465,6 +468,11 @@ final class SampleHandler: RPBroadcastSampleHandler {
         }
     }
 
+    /// Lines without characters these apps never show (Cyrillic look-alikes, "12ł"): garbled OCR, dropped.
+    static func latinOnly(_ lines: [OfferReader.Line]) -> [OfferReader.Line] {
+        lines.filter { line in line.text.unicodeScalars.allSatisfy { $0.isASCII || "•·°’‘“”–—éèñüöáíóú".unicodeScalars.contains($0) } }
+    }
+
     /// The status-bar clock, top left ("5:11"), or nil.
     private func statusBarClock(_ frame: CIImage) -> String? {
         let lines = recognize(frame, top: 0, bottom: 0.05, left: 0, right: 0.4, level: .accurate)
@@ -549,12 +557,19 @@ final class SampleHandler: RPBroadcastSampleHandler {
         let aspect = Double(extent.height / extent.width)
         guard let fast = try? reader.analyzeMap(pixels: pixels, width: width, height: height, platform: summary.platform,
                                                 top: top, bottom: bottom, aspect: aspect, lines: lines) else { return nil }
-        // Fewer than two place names read: read the map's text again with the accurate recognizer (~0.5 s, only then).
+        // Fewer than two place names read: read the map's text again, sharper, and keep whichever reading finds the most
+        // towns. Both the accurate recognizer and a high-resolution fast pass: iOS 27.0's accurate recognizer was reported
+        // to garble text (look-alike letters, junk after digits; research, Oct 24), while fast was unaffected.
         guard fast.labels.count < 2 else { return fast }
-        let accurate = recognize(frame, top: top, bottom: bottom, level: .accurate, maxWidth: 1400)
-        guard let better = try? reader.analyzeMap(pixels: pixels, width: width, height: height, platform: summary.platform,
-                                                  top: top, bottom: bottom, aspect: aspect, lines: accurate) else { return fast }
-        return better.labels.count > fast.labels.count ? better : fast
+        var best = fast
+        for lines in [Self.latinOnly(recognize(frame, top: top, bottom: bottom, level: .fast, maxWidth: 1400)),
+                      Self.latinOnly(recognize(frame, top: top, bottom: bottom, level: .accurate, maxWidth: 1400))] {
+            if let candidate = try? reader.analyzeMap(pixels: pixels, width: width, height: height, platform: summary.platform,
+                                                      top: top, bottom: bottom, aspect: aspect, lines: lines),
+               candidate.labels.count > best.labels.count { best = candidate }
+            if best.labels.count >= 2 { break }
+        }
+        return best
     }
 
     /// Offer fields for the stage-1 notification's "I accepted" button (before the refined offer exists). No addresses.
