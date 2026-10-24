@@ -195,6 +195,7 @@ struct DiagnosticsView: View {
             AIProbeSection()
             AIReviewSection()
             ReaderCompareSection()
+            PinCheckSection()
             Section("Storage") {
                 row("Shared App Group", model.storageAvailable ? "Available" : "Not shared with this install")
                 // Without it, settings travel through the bridge (Oct 24); the reader confirms when it starts.

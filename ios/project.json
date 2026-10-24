@@ -23,6 +23,7 @@
         { "path": "../core/copilot.js", "buildPhase": "resources" },
         { "path": "../core/shift.js", "buildPhase": "resources" },
         { "path": "../core/screen-reader.js", "buildPhase": "resources" },
+        { "path": "../core/map-reader.js", "buildPhase": "resources" },
         { "path": "../fixtures/sample-shift.json", "buildPhase": "resources" }
       ],
       "settings": { "base": {
