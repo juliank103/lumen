@@ -365,7 +365,8 @@ struct BreakdownView: View {
         let input = "{\"offers\":\(ShiftEngine.json(encodable: offers)),\"trips\":\(ShiftEngine.json(encodable: trips)),"
             + "\"shifts\":\(ShiftEngine.json(encodable: shifts)),\"entries\":\(EntryStore.shared.json),"
             + "\"restaurants\":\(RestaurantStore.shared.databaseJSON),\"filters\":\(ShiftEngine.json(filters)),"
-            + "\"offsetMinutes\":\(ShiftEngine.offsetMinutes),\"centsPerMile\":\(model.rules.centsPerMile)}"
+            + "\"offsetMinutes\":\(ShiftEngine.offsetMinutes),\"centsPerMile\":\(model.rules.centsPerMile),"
+            + "\"returnTimeShare\":\(TimingStore.current.returnShare)}"
         let result = ShiftEngine.decode(Breakdown.self, ShiftEngine.call("breakdownJSON", [input]))
         if result != data { data = result }
     }

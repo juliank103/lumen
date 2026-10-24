@@ -715,6 +715,16 @@
     if (credit) out.creditMilliMiles = credit;
     const creditText = credit ? ' (minus ' + miles1(credit) + ' mi you were driving back anyway)' : '';
     if (ret === null) {
+      // The order alone, before any drive back, is under the hourly target: Decline, not "Accept if return ≤ …" (Oct 24:
+      // 84 such offers, e.g. $2.55 for 15 minutes, were shown as maybes).
+      if (s.hourlyTargetCents !== null && valid(summary.appMinutes) && summary.appMinutes >= 5 &&
+          pay * 60 < s.hourlyTargetCents * summary.appMinutes) {
+        out.hourlyCents = Math.round(pay * 60 / summary.appMinutes);
+        out.notice = '≤$' + Math.floor(out.hourlyCents / 100) + '/hr · Decline';
+        out.detail = 'Below $' + (s.hourlyTargetCents / 100).toFixed(0) + '/hr on the order alone (' + summary.appMinutes + ' min), before the drive back';
+        out.tone = 'bad';
+        return out;
+      }
       // No return: say how long a return the offer can afford, counting the drive back already planned.
       if (credit) {
         const budget = Math.floor(pay * 1000 / s.centsPerMile), max = budget - outbound + credit;
@@ -757,7 +767,10 @@
     out.tripMinutes = trip.minutes; out.tripMinutesEstimated = trip.minutes === null ? null : trip.estimated;
     if (valid(route.returnMinutes)) out.returnMinutes = route.returnMinutes;
     if (creditMinutes) out.creditMinutes = creditMinutes;
-    const minutes = trip.minutes !== null && route && valid(route.returnMinutes) ? trip.minutes + route.returnMinutes - creditMinutes : null;
+    // The drive back counts toward $/hr at the share you really lose before the next order (returnTimeShare, learned
+    // from your orders; user Oct 24: "I bank on getting orders during the return"). Miles above count all of it.
+    const back = route && valid(route.returnMinutes) ? Math.max(0, route.returnMinutes - creditMinutes) * s.returnTimeShare : null;
+    const minutes = trip.minutes !== null && back !== null ? trip.minutes + back : null;
     const hourly = minutes !== null && minutes >= 5 ? pay * 60 / minutes : null;
     if (hourly !== null) out.hourlyCents = Math.round(hourly);
     const hourlyOk = s.hourlyTargetCents === null ? true : hourly === null ? null : hourly >= s.hourlyTargetCents;

@@ -504,7 +504,7 @@ extension Trip {
     var predictedHourlyCents: Int? {
         let hours = orders.compactMap { o -> Double? in
             // The app's ETA you entered (plus the predicted drive back) beats __APP_NAME__'s own estimate (Oct 23).
-            if let eta = o.appEtaMinutes { return Double(eta + (o.predictedReturnMinutes ?? 0)) / 60 }
+            if let eta = o.appEtaMinutes { return (Double(eta) + Double(o.predictedReturnMinutes ?? 0) * TimingStore.current.returnShare) / 60 }
             guard let hourly = o.predictedHourlyCents, hourly > 0 else { return nil }
             return Double(o.payCents) / Double(hourly)
         }

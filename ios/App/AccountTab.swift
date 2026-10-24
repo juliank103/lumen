@@ -38,7 +38,16 @@ struct AccountTab: View {
                         InfoNote(title: "Your rules", text: "Miles include the drive back.")
                     }
                 } footer: {
-                    if !model.rulesShared { Text("Reader uses $1/mi and $25/hr on this install.") }
+                    VStack(alignment: .leading, spacing: 4) {
+                        // How much of the drive back counts toward $/hr (user, Oct 24: orders often come on the way back).
+                        let timing = TimingStore.current
+                        if timing.returnShare < 1 {
+                            Text("$/hr counts \(Int((timing.returnShare * 100).rounded()))% of the drive back: the share you really lose before the next order, from \(timing.returnShareOrders) of your orders.")
+                        } else {
+                            Text("$/hr counts the whole drive back until 5 of your orders show how often the next one comes on the way.")
+                        }
+                        if !model.rulesShared { Text("Reader uses $1/mi and $25/hr on this install.") }
+                    }
                 }
                 Section {
                     Toggle("Tick order steps automatically", isOn: $autoSteps)

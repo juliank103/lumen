@@ -137,9 +137,18 @@ final class AppModel: ObservableObject {
     private func updateTimeFactors() {
         guard !PreviewData.isActive else { return }
         let trips = TripStore.shared.history + [TripStore.shared.active].compactMap { $0 }
+        let shifts = (ShiftStore.shared.history + [ShiftStore.shared.current].compactMap { $0 }).filter { !DemoData.isDemo($0.id) }
         let input = "{\"offers\":\(ShiftEngine.json(encodable: offers.filter { !DemoData.isDemo($0.offerId) })),"
-            + "\"trips\":\(ShiftEngine.json(encodable: trips.filter { !DemoData.isDemo($0.id) }))}"
-        if let factors = ShiftEngine.decode([String: Double].self, ShiftEngine.call("timeFactorsJSON", [input])) { TimingStore.save(factors) }
+            + "\"trips\":\(ShiftEngine.json(encodable: trips.filter { !DemoData.isDemo($0.id) })),"
+            + "\"shifts\":\(ShiftEngine.json(encodable: shifts))}"
+        struct Share: Decodable { let share: Double; let orders: Int }
+        var timing = TimingStore.current
+        if let factors = ShiftEngine.decode([String: Double].self, ShiftEngine.call("timeFactorsJSON", [input])) { timing.factors = factors }
+        if let share = ShiftEngine.decode(Share.self, ShiftEngine.call("returnShareJSON", [input])) {
+            timing.returnShare = share.share
+            timing.returnShareOrders = share.orders
+        }
+        TimingStore.save(timing)
     }
 
     func setRules(_ new: Rules) {

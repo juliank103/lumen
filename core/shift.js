@@ -1069,7 +1069,8 @@
     for (const trip of input.trips || []) for (const order of trip.orders || []) {
       const offer = byOffer[order.offerId];
       if (!offer || !appOk(offer) || !timeOk(offer) || order.ended !== 'completed' || !order.endedAt || !valid(offer.hourlyCents)) continue;
-      const back = Math.max(0, (valid(offer.returnMinutes) ? offer.returnMinutes : 0) - (valid(offer.creditMinutes) ? offer.creditMinutes : 0));
+      const share = valid(input.returnTimeShare) ? input.returnTimeShare : 1;
+      const back = share * Math.max(0, (valid(offer.returnMinutes) ? offer.returnMinutes : 0) - (valid(offer.creditMinutes) ? offer.creditMinutes : 0));
       const seconds = (ms(order.endedAt) - ms(order.acceptedAt)) / 1000 + back * 60;
       if (!(seconds >= 300)) continue;
       const actual = order.payCents * 3600 / seconds;
@@ -1236,15 +1237,42 @@
     return out;
   }
 
+  /* How much of the drive back you really lose before the next order (user, Oct 24: "I bank on getting orders during
+   * the return"). For each finished order with a known drive-back time that's followed by another order in the same
+   * shift: the minutes until that next accept, at most the whole drive back. The last order of a shift is left out (the
+   * drive home then is off the clock). Share = lost ÷ drive back, over 5+ such orders, kept between 0.3 and 1; else 1
+   * (count all of it). */
+  function returnShare(input) {
+    const byOffer = {};
+    for (const o of input.offers || []) byOffer[o.offerId || o.id] = o;
+    const shifts = (input.shifts || []).map(s => [ms(s.startedAt), valid(ms(s.endedAt)) ? ms(s.endedAt) : Infinity]);
+    const shiftOf = t => shifts.findIndex(([a, b]) => t >= a - 300000 && t <= b + 300000);
+    const orders = ordersOf(input.trips).filter(o => o.ended === 'completed' && valid(ms(o.endedAt)))
+      .sort((a, b) => ms(a.acceptedAt) - ms(b.acceptedAt));
+    let lost = 0, total = 0, n = 0;
+    orders.forEach((o, i) => {
+      const offer = byOffer[o.offerId] || {};
+      // Drive-back minutes: predicted, else the route's, else its miles at 25 mph.
+      const back = valid(o.predictedReturnMinutes) ? o.predictedReturnMinutes : valid(offer.returnMinutes) ? offer.returnMinutes
+        : valid(offer.returnMilliMiles) ? Math.round(offer.returnMilliMiles / 1000 / 25 * 60) : null;
+      if (!(back > 0)) return;
+      const end = ms(o.endedAt), next = orders.slice(i + 1).find(p => ms(p.acceptedAt) >= end - 60000);
+      if (!next || shiftOf(ms(next.acceptedAt)) !== shiftOf(end) || shiftOf(end) < 0) return;
+      lost += Math.min(back, Math.max(0, (ms(next.acceptedAt) - end) / 60000)); total += back; n++;
+    });
+    const share = n >= 5 && total > 0 ? Math.round(Math.min(1, Math.max(0.3, lost / total)) * 100) / 100 : 1;
+    return { share, orders: n };
+  }
+
   const json = f => (...args) => JSON.stringify(f(...args.map(a => (typeof a === 'string' ? JSON.parse(a) : a))));
   const api = { METERS_PER_MILE, SAME_PLACE_MILES, normalizeName, similarity, distanceMiles, emptyDb, matchRestaurant, updateRestaurants,
     mergeRestaurants, renameRestaurant, mergeSuggestions, storeVisits, restaurantStats, mealPeriod, shiftMetrics, toCSV, exportTables,
-    rangeMetrics, weekStats, dayPart, dominantPart, DAY_PARTS, zoneHeat, offerWorth, parseGridwise, parseCSV, goalStatus, goals, readerHealth, breakdown, verdictOf, shiftPlan, timeFactors,
+    rangeMetrics, weekStats, dayPart, dominantPart, DAY_PARTS, zoneHeat, offerWorth, parseGridwise, parseCSV, goalStatus, goals, readerHealth, breakdown, verdictOf, shiftPlan, timeFactors, returnShare,
     // JSON bridges for the iPhone (every argument is JSON text).
     updateRestaurantsJSON: json(updateRestaurants), mergeRestaurantsJSON: json(mergeRestaurants), renameRestaurantJSON: json(renameRestaurant),
     mergeSuggestionsJSON: json(mergeSuggestions), restaurantStatsJSON: json(restaurantStats), shiftMetricsJSON: json(shiftMetrics),
     exportTablesJSON: json(exportTables), weekStatsJSON: json(weekStats), zoneHeatJSON: json(zoneHeat), parseGridwiseJSON: json(parseGridwise), goalsJSON: json(goals), readerHealthJSON: json(readerHealth),
-    breakdownJSON: json(breakdown), shiftPlanJSON: json(shiftPlan), timeFactorsJSON: json(timeFactors) };
+    breakdownJSON: json(breakdown), shiftPlanJSON: json(shiftPlan), timeFactorsJSON: json(timeFactors), returnShareJSON: json(returnShare) };
   root.Shift = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
