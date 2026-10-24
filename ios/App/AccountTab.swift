@@ -189,6 +189,11 @@ struct DiagnosticsView: View {
             }
             Section("Storage") {
                 row("Shared App Group", model.storageAvailable ? "Available" : "Not shared with this install")
+                // Without it, settings travel through the bridge (Oct 24); the reader confirms when it starts.
+                if !model.storageAvailable {
+                    row("Settings reach the reader", signals.bridgeReadAt != nil ? "Yes, through the backup channel"
+                        : "Not confirmed. Start screen reading, then check again")
+                }
                 row("Return location shared with reader", model.destinationShared ? "Yes" : "No")
                 row("Offer history", OfferJournal.isShared ? "\(model.journalCount) offers" : "Inside screen reading")
             }

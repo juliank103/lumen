@@ -58,6 +58,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
 
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
         Signal.started.post()
+        // No App Group on this install: say whether the app's settings came through the bridge instead.
+        if (try? AppGroup.container()) == nil, Bridge.read("rules") != nil || Bridge.read("timing") != nil { Signal.bridgeRead.post() }
         // End shift in the app also stops screen reading (user, Oct 23: ending the shift but forgetting the reader
         // started a new shift right away).
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), Unmanaged.passUnretained(self).toOpaque(),

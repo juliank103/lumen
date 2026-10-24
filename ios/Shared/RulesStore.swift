@@ -25,6 +25,7 @@ enum RulesStore {
         let decoder = JSONDecoder()
         if let url = sharedURL(), let data = try? Data(contentsOf: url), let rules = try? decoder.decode(Rules.self, from: data) { return rules }
         if let data = UserDefaults.standard.data(forKey: localKey), let rules = try? decoder.decode(Rules.self, from: data) { return rules }
+        if let data = Bridge.read("rules"), let rules = try? decoder.decode(Rules.self, from: data) { return rules }
         return .defaults
     }
 
@@ -36,6 +37,7 @@ enum RulesStore {
         let clean = Rules(centsPerMile: min(500, max(25, rules.centsPerMile)), hourlyTargetCents: min(10_000, max(500, rules.hourlyTargetCents)))
         guard let data = try? JSONEncoder().encode(clean) else { return false }
         UserDefaults.standard.set(data, forKey: localKey)
+        Bridge.publish("rules", data)
         guard let url = sharedURL() else { return false }
         return (try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])) != nil
     }

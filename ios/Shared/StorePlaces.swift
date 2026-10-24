@@ -18,14 +18,16 @@ enum StorePlaces {
     private static func sharedURL() -> URL? { try? AppGroup.container().appendingPathComponent(fileName) }
 
     static func save(_ places: [StorePlace]) {
-        guard let url = sharedURL(), let data = try? JSONEncoder().encode(places) else { return }
+        guard let data = try? JSONEncoder().encode(places) else { return }
+        Bridge.publish("store-places", data)
+        guard let url = sharedURL() else { return }
         if let old = try? Data(contentsOf: url), old == data { return }
         try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
 
     static func load() -> [StorePlace] {
-        guard let url = sharedURL(), let data = try? Data(contentsOf: url) else { return [] }
-        return (try? JSONDecoder().decode([StorePlace].self, from: data)) ?? []
+        let data = sharedURL().flatMap { try? Data(contentsOf: $0) } ?? Bridge.read("store-places")
+        return data.flatMap { try? JSONDecoder().decode([StorePlace].self, from: $0) } ?? []
     }
 
     /// Like core/shift.js `normalizeName`: "Lou Malnati's (Franklin)" → "lou malnatis", "Crisp & Green" → "crisp and green".

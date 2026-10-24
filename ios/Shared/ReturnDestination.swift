@@ -36,6 +36,7 @@ enum ReturnDestinationStore {
         let decoder = JSONDecoder()
         if let url = sharedURL(), let data = try? Data(contentsOf: url), let state = try? decoder.decode(State.self, from: data) { return state }
         if let data = UserDefaults.standard.data(forKey: localKey), let state = try? decoder.decode(State.self, from: data) { return state }
+        if let data = Bridge.read("return-destination"), let state = try? decoder.decode(State.self, from: data) { return state }
         return State(current: .homeBase, saved: [])
     }
 
@@ -43,11 +44,14 @@ enum ReturnDestinationStore {
     private static func save(_ state: State) -> Bool {
         guard let data = try? JSONEncoder().encode(state) else { return false }
         UserDefaults.standard.set(data, forKey: localKey)
+        Bridge.publish("return-destination", data)
         guard let url = sharedURL() else { return false }
         return (try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])) != nil
     }
 
     static var current: ReturnDestination { load().current }
+    /// Hands the current choice to the reader again (the bridge, after an app launch).
+    static func republish() { save(load()) }
     /// Places the user added, most recent first (__HOME_NAME__ is always available and not listed here).
     static var saved: [ReturnDestination] { load().saved }
     /// Whether the offer reader can see the choice.

@@ -54,6 +54,10 @@ final class AppModel: ObservableObject {
         // The capture extension posts offer notifications; permission is asked here, in the app.
         _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert])
         LocationAccess.manager.requestWhenInUseAuthorization()
+        // Hand the current settings to the reader again (the bridge, when there's no App Group).
+        RulesStore.save(rules)
+        ReturnDestinationStore.republish()
+        TimingStore.save(TimingStore.current)
         await refresh()
     }
 

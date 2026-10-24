@@ -27,13 +27,17 @@ enum TimingStore {
             if let factors = try? decoder.decode([String: Double].self, from: data) { return Timing(factors: factors) }
         }
         if let data = UserDefaults.standard.data(forKey: localKey), let value = try? decoder.decode(Timing.self, from: data) { return value }
+        // The reader without an App Group: what the app handed over through the bridge.
+        if let data = Bridge.read("timing"), let value = try? decoder.decode(Timing.self, from: data) { return value }
         return Timing()
     }
 
     static var factors: [String: Double] { current.factors }
 
     static func save(_ timing: Timing) {
-        guard timing != current, let data = try? JSONEncoder().encode(timing) else { return }
+        guard let data = try? JSONEncoder().encode(timing) else { return }
+        Bridge.publish("timing", data)
+        guard timing != current else { return }
         UserDefaults.standard.set(data, forKey: localKey)
         if let url = sharedURL() { try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]) }
     }

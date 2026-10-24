@@ -6,6 +6,8 @@ final class ExtensionSignals: ObservableObject {
     static let offerReceived = Notification.Name("lumen.offerReceived")
     @Published private(set) var selfTestReceived = false
     @Published private(set) var loadedAt: Date?
+    /// When the reader last confirmed it got the app's settings through the bridge.
+    @Published private(set) var bridgeReadAt: Date?
     @Published private(set) var startedAt: Date?
     @Published private(set) var lastFrameAt: Date?
     @Published private(set) var frames = 0
@@ -53,6 +55,7 @@ final class ExtensionSignals: ObservableObject {
             NotificationCenter.default.post(name: Self.offerReceived, object: nil)
         case .readerFailed: readerFailed = true
         case .stopReading: break   // Sent by the app itself.
+        case .bridgeRead: bridgeReadAt = now
         case .finished:
             finishedAt = now
             MainActor.assumeIsolated {
