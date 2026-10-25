@@ -103,6 +103,10 @@ struct AccountTab: View {
                     // Training screens (user, Oct 25): the reader saves each offer screen to Photos for the pin model.
                     Toggle("Save offer screens to Photos", isOn: $trainingCapture)
                         .onChange(of: trainingCapture) { _, on in TrainingCapture.set(on) }
+                    if trainingCapture {
+                        Text(TrainingCapture.permission + ". Each offer screen the reader reads (40 a shift at most) lands in Photos › Recents as \"__APP_NAME__ <time> <app>\". Move them to the PC's pin marking tool, then delete them.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
                     NavigationLink { GridwiseImportView() } label: { Label("Import from Gridwise", systemImage: "square.and.arrow.down.on.square") }
                     NavigationLink("Privacy") { PrivacyView() }
                 } header: {
