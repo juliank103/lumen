@@ -601,7 +601,7 @@
     });
     const orders = Object.values(ordersById).map(o => ({ offer_id: o.offerId, trip_id: o.trip.id, app: o.platform, stores: (o.stores || []).join(' + '),
       dropoffs: o.dropoffs, pay: dollars(o.payCents), accepted_at: t(o.acceptedAt), ended_at: t(o.endedAt), outcome: o.ended || 'in progress',
-      minutes: minutesOf(o), per_hour: paceOf(o), stacked: (o.trip.orders || []).indexOf((o.trip.orders || []).find(x => x.offerId === o.offerId)) > 0 ? 'yes' : 'no' }));
+      minutes: minutesOf(o), per_hour: paceOf(o), late_tip: dollars(o.lateTipCents), note: o.note || null, stacked: (o.trip.orders || []).indexOf((o.trip.orders || []).find(x => x.offerId === o.offerId)) > 0 ? 'yes' : 'no' }));
     const stops = [];
     for (const trip of data.trips || []) {
       for (const s of trip.steps || []) {
@@ -631,7 +631,7 @@
     return {
       'offers.csv': toCSV(['seen_at', 'offer_id', 'app', 'pay', 'app_miles', 'app_minutes', 'stores', 'dropoffs', 'drop_off_town', 'return_miles',
         'return_kind', 'first_notification', 'verdict', 'reader_confidence', 'accepted', 'outcome', 'actual_minutes', 'actual_per_hour'], offers),
-      'orders.csv': toCSV(['offer_id', 'trip_id', 'app', 'stores', 'dropoffs', 'pay', 'accepted_at', 'ended_at', 'outcome', 'minutes', 'per_hour', 'stacked'], orders),
+      'orders.csv': toCSV(['offer_id', 'trip_id', 'app', 'stores', 'dropoffs', 'pay', 'accepted_at', 'ended_at', 'outcome', 'minutes', 'per_hour', 'stacked', 'late_tip', 'note'], orders),
       'trip-steps.csv': toCSV(['trip_id', 'offer_id', 'step', 'stop', 'label', 'at'], stops),
       'restaurant-waits.csv': toCSV(['store', 'app', 'arrived_at', 'left_at', 'wait_minutes', 'at_least', 'offer_id'], waits),
       'shifts.csv': toCSV(['started_at', 'ended_at', 'earnings', 'doordash', 'uber_eats', 'grubhub', 'online_hours', 'active_hours', 'idle_hours',

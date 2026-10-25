@@ -86,6 +86,11 @@ struct Trip: Codable, Identifiable, Equatable {
         /// The real drive back from where this order was delivered to the return destination (Apple Maps, worked out at
         /// the last drop-off; the position itself is not kept). Compared with the verdict's return estimate.
         var actualReturnMilliMiles: Int? = nil
+        /// A tip that came in after delivery (user, Oct 24: Uber adds hidden tips about an hour later). Already included in
+        /// payCents; kept apart so the offer's pay and the late tip can each be seen.
+        var lateTipCents: Int? = nil
+        /// The driver's own note on the order (hidden tip, long wait, wrong address…).
+        var note: String? = nil
 
         /// Pace including the drive back (the predicted return minutes), comparable with the verdict's $/hr.
         var paceWithReturnCents: Int? {
@@ -487,7 +492,7 @@ final class TripStore: ObservableObject {
     /// stops — Raising Cane's was marked arrived and left before the driver got there, skewing waits and times).
     func editOrder(_ offerId: String, platform: String, payCents: Int, ended: String?, acceptedAt: Date, endedAt: Date?,
                    storeEdits: [(from: Int?, name: String)], dropoffs: Int, stepTimes: [String: Date?] = [:],
-                   etaMinutes: Int? = nil, at now: Date = Date()) {
+                   etaMinutes: Int? = nil, lateTipCents: Int? = nil, note: String? = nil, at now: Date = Date()) {
         let names = storeEdits.enumerated().map { index, edit -> String in
             let name = edit.name.trimmingCharacters(in: .whitespaces)
             return name.isEmpty ? "Store \(index + 1)" : name
@@ -509,6 +514,9 @@ final class TripStore: ObservableObject {
             order.platform = platform
             order.acceptedAt = min(acceptedAt, now)
             order.appEtaMinutes = etaMinutes.flatMap { $0 > 0 && $0 < 300 ? $0 : nil }
+            order.lateTipCents = lateTipCents.flatMap { $0 > 0 ? $0 : nil }
+            let trimmed = note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            order.note = trimmed.isEmpty ? nil : String(trimmed.prefix(500))
             var stepEvents: [[String: Any]] = []
             trip.steps = trip.steps.compactMap { step in
                 guard step.offerId == offerId, let change = stepTimes[step.id] else { return step }

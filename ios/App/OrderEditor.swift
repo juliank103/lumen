@@ -42,6 +42,8 @@ struct OrderEditor: View {
     @State private var loaded = false
     @State private var steps: [StepEdit] = []
     @State private var etaText = ""
+    @State private var tipText = ""
+    @State private var note = ""
     /// The stored outcome ("cancelled by customer"), kept when the picker isn't changed.
     @State private var originalOutcome: String?
 
@@ -58,6 +60,17 @@ struct OrderEditor: View {
                         Text("Pay")
                         Spacer()
                         TextField("$0.00", text: $payText).keyboardType(.decimalPad).multilineTextAlignment(.trailing).frame(maxWidth: 120)
+                    }
+                    // A tip that shows up after delivery (user, Oct 24: Uber's hidden tips, about an hour later).
+                    if finished {
+                        HStack {
+                            Text("Tip added later")
+                            Spacer()
+                            TextField("$0.00", text: $tipText).keyboardType(.decimalPad).multilineTextAlignment(.trailing).frame(maxWidth: 120)
+                        }
+                        if let tip = tipCents, tip > 0, let pay = cents {
+                            LabeledContent("Total", value: ShiftFormat.money(pay + tip))
+                        }
                     }
                     if finished {
                         Picker("Outcome", selection: $outcome) {
@@ -137,6 +150,11 @@ struct OrderEditor: View {
                          : "What the app said the order would take.")
                 }
                 Section {
+                    TextField("Hidden tip came in, long wait, wrong address…", text: $note, axis: .vertical).lineLimit(1...6)
+                } header: {
+                    Text("Note")
+                }
+                Section {
                     DatePicker("Accepted", selection: $acceptedAt, in: ...Date())
                     if finished {
                         DatePicker(outcome == "completed" ? "Delivered" : "Ended", selection: $endedAt, in: acceptedAt...max(acceptedAt, Date()))
@@ -153,14 +171,15 @@ struct OrderEditor: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        TripStore.shared.editOrder(offerId, platform: platform, payCents: cents ?? 0,
+                        TripStore.shared.editOrder(offerId, platform: platform, payCents: (cents ?? 0) + (finished ? tipCents ?? 0 : 0),
                                                    ended: finished ? (outcome == picked(originalOutcome) ? originalOutcome : outcome) : nil,
                                                    acceptedAt: acceptedAt, endedAt: finished ? endedAt : nil,
                                                    storeEdits: stores.map { ($0.from, $0.name) }, dropoffs: dropoffs,
-                                                   stepTimes: stepTimes, etaMinutes: Int(etaText.trimmingCharacters(in: .whitespaces)))
+                                                   stepTimes: stepTimes, etaMinutes: Int(etaText.trimmingCharacters(in: .whitespaces)),
+                                                   lateTipCents: finished ? tipCents : nil, note: note)
                         dismiss()
                     }
-                    .disabled(cents == nil || stores.isEmpty)
+                    .disabled(cents == nil || stores.isEmpty || (!tipText.trimmingCharacters(in: .whitespaces).isEmpty && tipCents == nil))
                 }
             }
             .sensoryFeedback(.selection, trigger: stores.map(\.id))
@@ -191,8 +210,12 @@ struct OrderEditor: View {
         return list
     }
 
-    private var cents: Int? {
-        guard let value = Double(payText.replacingOccurrences(of: "$", with: "").replacingOccurrences(of: ",", with: ".")
+    private var cents: Int? { Self.dollars(payText) }
+    /// The late tip; an empty field is no tip.
+    private var tipCents: Int? { tipText.trimmingCharacters(in: .whitespaces).isEmpty ? 0 : Self.dollars(tipText) }
+
+    private static func dollars(_ text: String) -> Int? {
+        guard let value = Double(text.replacingOccurrences(of: "$", with: "").replacingOccurrences(of: ",", with: ".")
             .trimmingCharacters(in: .whitespaces)), value >= 0 else { return nil }
         return Int((value * 100).rounded())
     }
@@ -207,7 +230,10 @@ struct OrderEditor: View {
               let order = trip.orders.first(where: { $0.offerId == offerId }) else { return }
         loaded = true
         platform = order.platform
-        payText = String(format: "%.2f", Double(order.payCents) / 100)
+        // Pay is shown without the late tip, which has its own field; saving adds them back together.
+        payText = String(format: "%.2f", Double(order.payCents - (order.lateTipCents ?? 0)) / 100)
+        tipText = order.lateTipCents.map { String(format: "%.2f", Double($0) / 100) } ?? ""
+        note = order.note ?? ""
         finished = order.ended != nil
         originalOutcome = order.ended
         outcome = picked(order.ended)

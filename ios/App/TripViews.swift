@@ -304,11 +304,19 @@ struct TripResultSection: View {
                         HStack {
                             Text("Pay").foregroundStyle(.primary)
                             Spacer()
-                            Text(ShiftFormat.money(order.payCents) + (order.offerPayCents != nil ? " (offer \(ShiftFormat.money(order.offerPayCents)))" : ""))
+                            Text(ShiftFormat.money(order.payCents) + (order.lateTipCents.map { " incl. \(ShiftFormat.money($0)) late tip" }
+                                ?? (order.offerPayCents != nil ? " (offer \(ShiftFormat.money(order.offerPayCents)))" : "")))
                                 .foregroundStyle(.secondary)
                             Image(systemName: "pencil").font(.caption).foregroundStyle(Theme.purple)
                         }
                     }
+                }
+                if let note = order.note {
+                    Button { editingOrder = OrderEditTarget(offerId: offerId) } label: {
+                        Label { Text(note).foregroundStyle(.primary) } icon: { Image(systemName: "note.text").foregroundStyle(Theme.purple) }
+                    }
+                } else {
+                    Button { editingOrder = OrderEditTarget(offerId: offerId) } label: { Label("Add a note", systemImage: "note.text.badge.plus") }
                 }
                 ForEach(Array(order.stores.enumerated()), id: \.offset) { stop, name in
                     if let arrived = trip.time(.arrivedStore, offerId, stop) {
