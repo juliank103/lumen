@@ -16,7 +16,7 @@ struct ShiftOverview: View {
         Section {
             VStack(alignment: .leading, spacing: 8) {
                 Text(title).font(.subheadline).foregroundStyle(.secondary)
-                Text(ShiftFormat.money(m.earningsCents)).font(.system(size: earningsSize, weight: .bold, design: .rounded))
+                CountUpMoney(cents: m.earningsCents, remember: false).font(.system(size: earningsSize, weight: .bold, design: .rounded))
                 if costPerMile > 0 {
                     Text(ShiftFormat.money(m.earningsCents - cost) + " after vehicle cost").font(.subheadline).foregroundStyle(.secondary)
                 }

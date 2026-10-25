@@ -115,7 +115,7 @@ struct HomeShiftStrip: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("This Shift").font(.caption.weight(.semibold)).foregroundStyle(Theme.secondaryText)
                 HStack(alignment: .firstTextBaseline) {
-                    Text(ShiftFormat.money(m.earningsCents)).font(.title2.weight(.bold)).monospacedDigit()
+                    CountUpMoney(cents: m.earningsCents).font(.title2.weight(.bold))
                     Spacer()
                     HStack(spacing: 6) {
                         Text(ShiftFormat.rate(m.shiftHourlyCents, "hr"))
@@ -144,7 +144,8 @@ struct HomeWaiting: View {
             if let shift = shifts.current, let m = shifts.metrics {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(m.period.map { "\($0.label) shift" } ?? "This shift").font(.subheadline.weight(.medium)).foregroundStyle(Theme.secondaryText)
-                    Text(ShiftFormat.money(m.earningsCents)).font(.system(size: 72, weight: .heavy, design: .rounded)).monospacedDigit()
+                    CountUpMoney(cents: m.earningsCents, plusFont: .system(size: 28, weight: .bold, design: .rounded))
+                        .font(.system(size: 72, weight: .heavy, design: .rounded))
                         .lineLimit(1).minimumScaleFactor(0.6)
                     HStack(spacing: 18) {
                         Text(ShiftFormat.rate(m.shiftHourlyCents, "hr"))

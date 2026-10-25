@@ -19,6 +19,78 @@ enum ShiftFormat {
     }
 }
 
+/// The shift's money, counting up when an order adds to it (user, Oct 25: "a satisfying count up animation rather than
+/// just pop change"): it ticks from the old total to the new one, easing out (longer for bigger orders), glows green
+/// with a "+$12.50" floating up beside it, and lands with a haptic. A lower total (an edit, a new shift) just changes.
+/// Orders usually finish while the delivery app is in front: the last total shown is remembered, and the count plays
+/// when __APP_NAME__ is opened again.
+struct CountUpMoney: View {
+    let cents: Int
+    var plusFont: Font = .headline
+    /// Only the live shift's total remembers what was last shown (a past shift's total must not overwrite it).
+    var remember = true
+    @Environment(\.scenePhase) private var phase
+    @State private var value: Double
+    @State private var glowing = false
+    @State private var added: Int?
+    @State private var landed = 0
+    private static let shownKey = "countUpShownCents"
+
+    init(cents: Int, plusFont: Font = .headline, remember: Bool = true) {
+        self.cents = cents
+        self.plusFont = plusFont
+        self.remember = remember
+        let shown = remember ? UserDefaults.standard.object(forKey: Self.shownKey) as? Int ?? cents : cents
+        _value = State(initialValue: Double((0..<cents).contains(shown) ? shown : cents))
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            CountingMoney(value: value)
+                .monospacedDigit()
+                .foregroundStyle(glowing ? Theme.neonGreen : Color.primary)
+                .scaleEffect(glowing ? 1.06 : 1, anchor: .leading)
+            if let added {
+                Text("+" + ShiftFormat.money(added))
+                    .font(plusFont).foregroundStyle(Theme.neonGreen).monospacedDigit()
+                    .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
+                                            removal: .offset(y: -18).combined(with: .opacity)))
+            }
+        }
+        .sensoryFeedback(.success, trigger: landed)
+        .onAppear(perform: catchUp)
+        .onChange(of: phase) { _, now in if now == .active { catchUp() } }
+        .onChange(of: cents) { _, _ in if phase == .active { catchUp() } }
+    }
+
+    /// Count from what's on screen to the current total (or just show it, if it went down).
+    private func catchUp() {
+        let from = Int(value.rounded())
+        if remember { UserDefaults.standard.set(cents, forKey: Self.shownKey) }
+        guard cents > from else { value = Double(cents); return }
+        // $5 counts for about a second, $40 for two.
+        let duration = min(2.0, 0.85 + Double(cents - from) / 100 * 0.03)
+        withAnimation(.spring(duration: 0.3)) { glowing = true; added = cents - from }
+        withAnimation(.timingCurve(0.15, 0.6, 0.25, 1, duration: duration)) { value = Double(cents) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
+            landed += 1
+            withAnimation(.easeOut(duration: 0.7)) { glowing = false }
+            withAnimation(.easeIn(duration: 0.6).delay(0.9)) { added = nil }
+        }
+    }
+}
+
+/// Money text whose value SwiftUI animates frame by frame (the count itself).
+private struct CountingMoney: View, Animatable {
+    var value: Double
+    var animatableData: Double {
+        get { value }
+        set { value = newValue }
+    }
+
+    var body: some View { Text(ShiftFormat.money(Int(value.rounded()))) }
+}
+
 /// Dash: the running shift in one strip — earnings, pace, and the goal bar. Details live on Stats.
 struct ShiftSummaryCard: View {
     @ObservedObject private var shifts = ShiftStore.shared
@@ -35,7 +107,8 @@ struct ShiftSummaryCard: View {
                 // Running shift miles next to the time (user, Oct 18).
                 Text(ShiftFormat.miles(m.miles.total)).foregroundStyle(.secondary).monospacedDigit()
                 Spacer()
-                Text(ShiftFormat.money(m.earningsCents) + " · " + ShiftFormat.rate(m.shiftHourlyCents, "hr")).monospacedDigit()
+                CountUpMoney(cents: m.earningsCents, plusFont: .subheadline.weight(.bold))
+                Text("· " + ShiftFormat.rate(m.shiftHourlyCents, "hr")).monospacedDigit()
             }
             .font(.subheadline.weight(.semibold))
             .padding(.horizontal, 16).padding(.vertical, 12)
@@ -45,7 +118,7 @@ struct ShiftSummaryCard: View {
                 HStack(alignment: .firstTextBaseline) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(m.period.map { "\($0.label) shift" } ?? "This shift").font(.subheadline).foregroundStyle(.secondary)
-                        Text(ShiftFormat.money(m.earningsCents)).font(.system(size: earningsSize, weight: .bold, design: .rounded))
+                        CountUpMoney(cents: m.earningsCents).font(.system(size: earningsSize, weight: .bold, design: .rounded))
                     }
                     Spacer()
                     VStack(alignment: .trailing, spacing: 2) {
