@@ -42,7 +42,8 @@ struct OrderEditor: View {
     @State private var loaded = false
     @State private var steps: [StepEdit] = []
     @State private var etaText = ""
-    @State private var tipText = ""
+    /// The order's total after a late tip, as the app shows it; empty = no late tip.
+    @State private var totalText = ""
     @State private var note = ""
     /// The stored outcome ("cancelled by customer"), kept when the picker isn't changed.
     @State private var originalOutcome: String?
@@ -61,15 +62,18 @@ struct OrderEditor: View {
                         Spacer()
                         TextField("$0.00", text: $payText).keyboardType(.decimalPad).multilineTextAlignment(.trailing).frame(maxWidth: 120)
                     }
-                    // A tip that shows up after delivery (user, Oct 24: Uber's hidden tips, about an hour later).
+                    // A tip that shows up after delivery (user, Oct 24: Uber's hidden tips, about an hour later). The driver
+                    // types the new total the app shows; the late tip is the difference.
                     if finished {
                         HStack {
-                            Text("Tip added later")
+                            Text("Total after a late tip")
                             Spacer()
-                            TextField("$0.00", text: $tipText).keyboardType(.decimalPad).multilineTextAlignment(.trailing).frame(maxWidth: 120)
+                            TextField("$0.00", text: $totalText).keyboardType(.decimalPad).multilineTextAlignment(.trailing).frame(maxWidth: 120)
                         }
-                        if let tip = tipCents, tip > 0, let pay = cents {
-                            LabeledContent("Total", value: ShiftFormat.money(pay + tip))
+                        if let tip = tipCents, tip > 0 {
+                            LabeledContent("Late tip", value: ShiftFormat.money(tip))
+                        } else if tipCents == nil, !totalText.trimmingCharacters(in: .whitespaces).isEmpty {
+                            Text("The total can't be less than the pay.").font(.footnote).foregroundStyle(.red)
                         }
                     }
                     if finished {
@@ -179,7 +183,7 @@ struct OrderEditor: View {
                                                    lateTipCents: finished ? tipCents : nil, note: note)
                         dismiss()
                     }
-                    .disabled(cents == nil || stores.isEmpty || (!tipText.trimmingCharacters(in: .whitespaces).isEmpty && tipCents == nil))
+                    .disabled(cents == nil || stores.isEmpty || (finished && tipCents == nil))
                 }
             }
             .sensoryFeedback(.selection, trigger: stores.map(\.id))
@@ -211,8 +215,12 @@ struct OrderEditor: View {
     }
 
     private var cents: Int? { Self.dollars(payText) }
-    /// The late tip; an empty field is no tip.
-    private var tipCents: Int? { tipText.trimmingCharacters(in: .whitespaces).isEmpty ? 0 : Self.dollars(tipText) }
+    /// The late tip: total minus pay; an empty total is no tip; nil when the total isn't a number or is below the pay.
+    private var tipCents: Int? {
+        guard !totalText.trimmingCharacters(in: .whitespaces).isEmpty else { return 0 }
+        guard let total = Self.dollars(totalText), let pay = cents, total >= pay else { return nil }
+        return total - pay
+    }
 
     private static func dollars(_ text: String) -> Int? {
         guard let value = Double(text.replacingOccurrences(of: "$", with: "").replacingOccurrences(of: ",", with: ".")
@@ -232,7 +240,7 @@ struct OrderEditor: View {
         platform = order.platform
         // Pay is shown without the late tip, which has its own field; saving adds them back together.
         payText = String(format: "%.2f", Double(order.payCents - (order.lateTipCents ?? 0)) / 100)
-        tipText = order.lateTipCents.map { String(format: "%.2f", Double($0) / 100) } ?? ""
+        totalText = order.lateTipCents.map { _ in String(format: "%.2f", Double(order.payCents) / 100) } ?? ""
         note = order.note ?? ""
         finished = order.ended != nil
         originalOutcome = order.ended
