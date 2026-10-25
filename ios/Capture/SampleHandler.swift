@@ -3,6 +3,7 @@ import Vision
 import CoreImage
 import ImageIO
 import UserNotifications
+import Photos
 
 final class SampleHandler: RPBroadcastSampleHandler {
     // Offer cards in the user's screenshots start at 47–55% of screen height.
@@ -33,6 +34,10 @@ final class SampleHandler: RPBroadcastSampleHandler {
     private var notifiedOffers: [String: Date] = [:]
     /// A map that couldn't be read yet: run again on the next frame of the same offer (only touched on `processing`).
     private var mapRetry: (fingerprint: String, attempt: Int, run: (CIImage) -> Void)?
+    /// Offers whose screen was saved for training this broadcast (touched only on `processing`), and the last save
+    /// error, reported on the next offer's trace.
+    private var trainingSaved = Set<String>()
+    private var trainingProblem: String?
     /// The last few readings of the card on screen (8 s): an offer goes out when one reading of app, pay, and miles
     /// has at least two votes and more than any other (user, Oct 21: vote across reads).
     private var recentReads: [(fingerprint: String, at: Date)] = []
@@ -69,6 +74,13 @@ final class SampleHandler: RPBroadcastSampleHandler {
                 handler.finishBroadcastWithError(NSError(domain: "Lumen", code: 1,
                                                          userInfo: [NSLocalizedDescriptionKey: "Shift ended. __APP_NAME__ stopped reading offers."]))
             }, Signal.stopReading.name as CFString, nil, .deliverImmediately)
+        // The app's "Save offer screens" switch, also as a signal (the bridge may not reach the reader on this install).
+        for signal in [Signal.trainingOn, Signal.trainingOff] {
+            CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, name, _, _ in
+                let on = (name?.rawValue as String?) == Signal.trainingOn.name
+                UserDefaults.standard.set(Data((on ? "on" : "off").utf8), forKey: "bridge.training-capture")
+            }, signal.name as CFString, nil, .deliverImmediately)
+        }
         NotificationActions.register()
         // Posted before any heavy work, so it arrives even if the extension is terminated later.
         notify(id: "broadcast-started", title: "__APP_NAME__ is reading offers",
@@ -349,6 +361,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
         processing.asyncAfter(deadline: .now() + 12) { deliver(nil, "Apple Maps did not answer within 12 seconds") }
         guard summary.dropoffQuery == nil else {
             trace.append("drop-off text on card")
+            if let note = saveTrainingScreen(frame, platform: summary.platform, fingerprint: summary.fingerprint) { trace.append(note) }
             return fallback(nil)
         }
         // The map is read from this frame, and again from the next ones (up to 3 looks, ~6 s) while it shows nothing
@@ -373,6 +386,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
             return fallback("map could not be read")
         }
         if map.pins == 0 && map.labels.isEmpty { return lookAgain("empty map") }
+        if let note = saveTrainingScreen(frame, platform: summary.platform, fingerprint: summary.fingerprint) { trace.append(note) }
         mapJSON = map.json
         if let note = map.note { trace.append(note) }
         trace.append("map labels read: " + (map.labels.joined(separator: "/").isEmpty ? "none" : map.labels.joined(separator: "/")))
@@ -559,6 +573,43 @@ final class SampleHandler: RPBroadcastSampleHandler {
             line.y < 0.18 && line.text.range(of: #"^(now|\d+\s?[smh] ago)$|__APP_NAME__|DoorDash|Dasher|Uber|Grubhub|Instacart|Messages"#,
                                                options: [.regularExpression, .caseInsensitive]) != nil
         }
+    }
+
+    private static let trainingStamp: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH-mm-ss"
+        return formatter
+    }()
+
+    /// Training screens (user, Oct 25: "capture the offer screens… especially Grubhub"): with the app's switch on, the
+    /// offer frame the reader used goes to Photos at 720 px wide (what the pin model trains on), once per offer and at
+    /// most 40 a broadcast, named "__APP_NAME__ <time> <app>.jpg" for the PC's marking tool. Returns a note for the trace.
+    private func saveTrainingScreen(_ frame: CIImage, platform: String, fingerprint: String) -> String? {
+        guard Bridge.read("training-capture").map({ String(decoding: $0, as: UTF8.self) == "on" }) == true,
+              !trainingSaved.contains(fingerprint) else { return nil }
+        if let problem = trainingProblem { trainingProblem = nil; return "training screen: " + problem }
+        guard trainingSaved.count < 40 else { return "training screen not saved (40 this shift)" }
+        let status = PHPhotoLibrary.authorizationStatus(for: .addOnly)
+        guard status != .denied, status != .restricted else { return "training screen not saved (no Photos permission)" }
+        let extent = frame.extent, scale = 720 / extent.width
+        let small = frame.transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
+            .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let jpeg = imageContext.jpegRepresentation(of: small, colorSpace: space,
+                                                         options: [CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): 0.85])
+        else { return "training screen not saved (image)" }
+        trainingSaved.insert(fingerprint)
+        let name = "__APP_NAME__ " + Self.trainingStamp.string(from: Date()) + " " + platform + ".jpg"
+        PHPhotoLibrary.shared().performChanges({
+            let options = PHAssetResourceCreationOptions()
+            options.originalFilename = name
+            PHAssetCreationRequest.forAsset().addResource(with: .photo, data: jpeg, options: options)
+        }, completionHandler: { [weak self] ok, error in
+            guard !ok, let self else { return }
+            let reason = error?.localizedDescription ?? "no reason given"
+            self.processing.async { self.trainingProblem = "Photos refused the last one (" + reason + ")" }
+        })
+        return "training screen saved (" + (status == .authorized ? "Photos" : "Photos, permission \(status.rawValue)") + ")"
     }
 
     private func mapAnalysis(of frame: CIImage, summary: OfferReader.Summary, reader: OfferReader) -> OfferReader.MapAnalysis? {

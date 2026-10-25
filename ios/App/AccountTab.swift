@@ -8,6 +8,7 @@ struct AccountTab: View {
     @AppStorage("vehicleCostCentsPerMile") private var costPerMile = 0
     @AppStorage("keepReadingData") private var keepReadingData = true
     @AppStorage("reader2Trial") private var reader2Trial = false
+    @AppStorage("trainingCapture") private var trainingCapture = false
     @State private var editingDeduction = false
     @State private var deductionText = ""
     @AppStorage(AutoSteps.enabledKey) private var autoSteps = true
@@ -99,6 +100,9 @@ struct AccountTab: View {
                     // Reader 2 trial (Oct 24): Apple's structured document reader runs alongside, once per offer.
                     Toggle("Reader 2 trial", isOn: $reader2Trial)
                         .onChange(of: reader2Trial) { _, on in Bridge.publish("reader2-trial", Data((on ? "on" : "off").utf8)) }
+                    // Training screens (user, Oct 25): the reader saves each offer screen to Photos for the pin model.
+                    Toggle("Save offer screens to Photos", isOn: $trainingCapture)
+                        .onChange(of: trainingCapture) { _, on in TrainingCapture.set(on) }
                     NavigationLink { GridwiseImportView() } label: { Label("Import from Gridwise", systemImage: "square.and.arrow.down.on.square") }
                     NavigationLink("Privacy") { PrivacyView() }
                 } header: {

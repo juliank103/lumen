@@ -138,6 +138,7 @@ final class AppModel: ObservableObject {
             ReturnDestinationStore.republish()
             RestaurantStore.shared.shareKnownPlaces()
             Bridge.publish("reader2-trial", Data((UserDefaults.standard.bool(forKey: "reader2Trial") ? "on" : "off").utf8))
+            TrainingCapture.republish()
         }
         TripActivityController.refresh(TripStore.shared.active)
         RestaurantStore.shared.update(offers: offers, trips: TripStore.shared.history + [TripStore.shared.active].compactMap { $0 })

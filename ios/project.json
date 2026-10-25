@@ -40,6 +40,7 @@
           "CopilotAppGroup": "$(COPILOT_APP_GROUP)",
           "UIBackgroundModes": ["location", "audio"],
           "NSSupportsLiveActivities": true,
+          "NSPhotoLibraryAddUsageDescription": "With \"Save offer screens to Photos\" on, __APP_NAME__ saves each offer screen it reads to your photos, to train its map reader on your PC.",
           "NSLocationWhenInUseUsageDescription": "Measures your drive back after offers and adds up your miles during a shift. Your route is not stored or shared; only mile totals and the places of restaurants you arrive at.",
           "NSLocationAlwaysAndWhenInUseUsageDescription": "Lets __APP_NAME__ measure your drive back and add up shift miles while you use your delivery apps. Your route is not stored or shared; only mile totals and the places of restaurants you arrive at.",
           "ALTAppGroups": ["$(COPILOT_APP_GROUP)"],
@@ -121,6 +122,7 @@
         "properties": {
           "CFBundleDisplayName": "__APP_NAME__ Reader",
           "CopilotAppGroup": "$(COPILOT_APP_GROUP)",
+          "NSPhotoLibraryAddUsageDescription": "With \"Save offer screens to Photos\" on, __APP_NAME__ saves each offer screen it reads to your photos, to train its map reader on your PC.",
           "NSLocationWhenInUseUsageDescription": "Used only to measure your drive back to __HOME_NAME__ when an offer arrives. Your position is not stored or shared.",
           "NSLocationAlwaysAndWhenInUseUsageDescription": "Lets the screen-reading broadcast measure your drive back to __HOME_NAME__ while you use your delivery apps. Your position is not stored or shared.",
           "ALTAppGroups": ["$(COPILOT_APP_GROUP)"],
