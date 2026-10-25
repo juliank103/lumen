@@ -374,6 +374,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
         }
         if map.pins == 0 && map.labels.isEmpty { return lookAgain("empty map") }
         mapJSON = map.json
+        if let note = map.note { trace.append(note) }
         trace.append("map labels read: " + (map.labels.joined(separator: "/").isEmpty ? "none" : map.labels.joined(separator: "/")))
         router.mapPlaces(labels: map.labels, pickup: summary.pickupQuery, pickupName: summary.pickupName) { places, pickupPlace in
             self.processing.async {
@@ -601,23 +602,34 @@ final class SampleHandler: RPBroadcastSampleHandler {
         let aspect = Double(extent.height / extent.width)
         // The pin model, when it's in the build and finds a drop-off; otherwise the pixel rules in map-reader.js.
         var detections: String? = nil
-        if let screenCG, let mapCG = screenCG.cropping(to: CGRect(x: 0, y: CGFloat(Double(screenCG.height) * top), width: CGFloat(screenCG.width),
-                                                                   height: CGFloat(Double(screenCG.height) * (bottom - top)))),
-           let found = PinDetector.shared.detect(map: mapCG, top: top, bottom: bottom), found.contains(where: { $0.kind == "customer" }) {
-            detections = PinDetector.json(found)
+        var note = String(format: "map %.0f–%.0f%%", top * 100, bottom * 100) + (edge != nil ? " (card edge)" : " (card text)")
+        if !PinDetector.shared.available {
+            note += " · pin model not loaded"
+        } else if let screenCG, let mapCG = screenCG.cropping(to: CGRect(x: 0, y: CGFloat(Double(screenCG.height) * top), width: CGFloat(screenCG.width),
+                                                                          height: CGFloat(Double(screenCG.height) * (bottom - top)))),
+                  let found = PinDetector.shared.detect(map: mapCG, top: top, bottom: bottom) {
+            let scores = ["store", "customer", "you"].map { kind -> String in
+                let list = found.filter { $0.kind == kind }.map { String(format: "%.2f", $0.score) }
+                return kind + " " + (list.isEmpty ? "none" : list.joined(separator: "/"))
+            }
+            note += " · pin model: " + scores.joined(separator: ", ")
+            if found.contains(where: { $0.kind == "customer" }) { detections = PinDetector.json(found) } else { note += " (no customer → pixel rules)" }
+        } else {
+            note += " · pin model: no result"
         }
-        guard let fast = try? reader.analyzeMap(pixels: pixels, width: width, height: height, platform: summary.platform,
+        guard var fast = try? reader.analyzeMap(pixels: pixels, width: width, height: height, platform: summary.platform,
                                                 top: top, bottom: bottom, aspect: aspect, lines: lines, detections: detections) else { return nil }
         // Fewer than two place names read: read the map's text again, sharper, and keep whichever reading finds the most
         // towns. Both the accurate recognizer and a high-resolution fast pass: iOS 27.0's accurate recognizer was reported
         // to garble text (look-alike letters, junk after digits; research, Oct 24), while fast was unaffected.
+        fast.note = note
         guard fast.labels.count < 2 else { return fast }
         var best = fast
         for lines in [Self.latinOnly(recognize(frame, top: top, bottom: bottom, level: .fast, maxWidth: 1400)),
                       Self.latinOnly(recognize(frame, top: top, bottom: bottom, level: .accurate, maxWidth: 1400))] {
             if let candidate = try? reader.analyzeMap(pixels: pixels, width: width, height: height, platform: summary.platform,
                                                       top: top, bottom: bottom, aspect: aspect, lines: lines, detections: detections),
-               candidate.labels.count > best.labels.count { best = candidate }
+               candidate.labels.count > best.labels.count { best = candidate; best.note = note }
             if best.labels.count >= 2 { break }
         }
         return best

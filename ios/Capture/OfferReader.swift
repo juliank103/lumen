@@ -34,6 +34,9 @@ final class OfferReader {
         let labels: [String]
         /// Pins found (0 usually means the map hadn't loaded or was mid-zoom).
         var pins: Int = 0
+        /// What the pin model saw and where the map was cut, for the offer's trace (Oct 24: DoorDash maps mostly fell back
+        /// to the pixel rules; this says why). Pin counts and scores only.
+        var note: String? = nil
     }
 
     /// Drop-off coordinates read off the map, with the position uncertainty in miles; or why there are none.

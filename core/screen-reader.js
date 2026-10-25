@@ -365,6 +365,14 @@
     if (minutes && /^\d+$/.test(minutes)) f.appMinutes = Number(minutes);
     const orders = columns.orders || inline(/^(\d{1,2})\s*orders?$/i);
     if (orders && /^\d+$/.test(orders)) f.orderCount = Number(orders);
+    // "$2.51" over "per mile" (bundle cards, Oct 24): pay ÷ this is the trip's miles, which settles a whole-number
+    // mileage ("15" for 15 mi, not a lost decimal point).
+    const perMileLabel = lines.find(l => /per\s*mile/i.test(l.text));
+    if (perMileLabel) {
+      const above = lines.filter(l => l !== perMileLabel && l.y < perMileLabel.y && perMileLabel.y - l.y < 0.1).sort((a, b) => b.y - a.y);
+      const m = above.map(l => /\$\s?(\d{1,2}\.\d{2})\b/.exec(l.text)).find(Boolean);
+      if (m) f.perMileCents = Math.round(Number(m[1]) * 100);
+    }
     // Grubhub centers the merchant above the pay; map labels cut off at the screen edge are not candidates.
     const center = pay.line.x + pay.line.w / 2;
     const name = lines.filter(l => l.y < pay.line.y && pay.line.y - l.y < 0.08 && !/^(Food delivery|Bundle|\d+)$/i.test(l.text) &&
@@ -421,7 +429,8 @@
     const orderType = /\b(Shop(ping)?|Shop & Pay|Grocer(y|ies)|Retail)\b/i.test(text) ? 'shop' : /\b(Package|Parcel|Courier)\b/i.test(text) ? 'other' : 'food';
     // All three apps print miles with one decimal ("7.1", "11.0"); a whole number of 2–3 digits is a lost point
     // ("71" → 7.1), never 71 miles (scorecard, Oct 18: a dropped point gave 71 mi for a 25-minute trip).
-    if (f.milesText !== null && /^\d{2,3}$/.test(f.milesText)) {
+    const wholeFits = f.perMileCents > 0 && Math.abs(Number(f.milesText) - pay.cents / f.perMileCents) <= 0.12 * pay.cents / f.perMileCents;
+    if (f.milesText !== null && /^\d{2,3}$/.test(f.milesText) && !wholeFits) {
       f.milesText = f.milesText.slice(0, -1) + '.' + f.milesText.slice(-1);
       problems.push('Mileage decimal point was missing; restored'); // Lower confidence: the phone waits for a 2nd read.
     }
