@@ -37,6 +37,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
     /// Offers whose screen was saved for training this broadcast (touched only on `processing`), and the last save
     /// error, reported on the next offer's trace.
     private var trainingSaved = Set<String>()
+    private var trainingPerApp: [String: Int] = [:]
     private var trainingProblem: String?
     /// The last few readings of the card on screen (8 s): an offer goes out when one reading of app, pay, and miles
     /// has at least two votes and more than any other (user, Oct 21: vote across reads).
@@ -583,12 +584,15 @@ final class SampleHandler: RPBroadcastSampleHandler {
 
     /// Training screens (user, Oct 25: "capture the offer screens… especially Grubhub"): with the app's switch on, the
     /// offer frame the reader used goes to Photos at 720 px wide (what the pin model trains on), once per offer and at
-    /// most 40 a broadcast, named "__APP_NAME__ <time> <app>.jpg" for the PC's marking tool. Returns a note for the trace.
+    /// most 15 DoorDash, 15 Uber and 60 Grubhub a broadcast, named "__APP_NAME__ <time> <app>.jpg" for the PC's marking tool. Returns a note for the trace.
     private func saveTrainingScreen(_ frame: CIImage, platform: String, fingerprint: String) -> String? {
         guard Bridge.read("training-capture").map({ String(decoding: $0, as: UTF8.self) == "on" }) == true,
               !trainingSaved.contains(fingerprint) else { return nil }
         if let problem = trainingProblem { trainingProblem = nil; return "training screen: " + problem }
-        guard trainingSaved.count < 40 else { return "training screen not saved (40 this shift)" }
+        // Per app (user, Oct 25: Grubhub offers are the rarest and the most needed): DoorDash and Uber 15 a shift each,
+        // Grubhub 60.
+        let cap = platform == "grubhub" ? 60 : 15
+        guard trainingPerApp[platform, default: 0] < cap else { return nil }
         let status = PHPhotoLibrary.authorizationStatus(for: .addOnly)
         guard status != .denied, status != .restricted else { return "training screen not saved (no Photos permission)" }
         let extent = frame.extent, scale = 720 / extent.width
@@ -599,6 +603,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
                                                          options: [CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): 0.85])
         else { return "training screen not saved (image)" }
         trainingSaved.insert(fingerprint)
+        trainingPerApp[platform, default: 0] += 1
         let name = "__APP_NAME__ " + Self.trainingStamp.string(from: Date()) + " " + platform + ".jpg"
         PHPhotoLibrary.shared().performChanges({
             let options = PHAssetResourceCreationOptions()

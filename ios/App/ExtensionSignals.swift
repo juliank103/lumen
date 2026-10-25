@@ -56,7 +56,7 @@ final class ExtensionSignals: ObservableObject {
             offers += 1
             NotificationCenter.default.post(name: Self.offerReceived, object: nil)
         case .readerFailed: readerFailed = true
-        case .stopReading: break   // Sent by the app itself.
+        case .stopReading, .trainingOn, .trainingOff: break   // Sent by the app itself.
         case .bridgeRead: bridgeReadAt = now
         case .aiProbe: aiProbeAt = now
         case .finished:
