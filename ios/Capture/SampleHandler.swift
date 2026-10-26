@@ -117,13 +117,21 @@ final class SampleHandler: RPBroadcastSampleHandler {
         content.threadIdentifier = thread
         content.userInfo = userInfo
         if let category { content.categoryIdentifier = category }
-        // A kept training screen rides along, thumbnail hidden; iOS moves the file into its own store.
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
+        // A kept training screen goes in its own silent notification, never on the verdict: with the screen attached
+        // to the verdict, verdicts stopped arriving once enough had piled up (Oct 27; switch off → verdicts back).
+        // Passive: no banner, sound or wake. The app saves the screen to Photos and removes the notification.
         if let training, let attachment = try? UNNotificationAttachment(identifier: TrainingAttachment.identifier, url: training.url, options: [
             UNNotificationAttachmentOptionsThumbnailHiddenKey: true, UNNotificationAttachmentOptionsTypeHintKey: "public.jpeg"]) {
-            content.attachments = [attachment]
-            content.userInfo[TrainingAttachment.nameKey] = training.name
+            let screen = UNMutableNotificationContent()
+            screen.title = "Training screen"
+            screen.body = "Saved to Photos when you open __APP_NAME__."
+            screen.threadIdentifier = "training"
+            screen.interruptionLevel = .passive
+            screen.attachments = [attachment]
+            screen.userInfo = [TrainingAttachment.nameKey: training.name]
+            UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: TrainingAttachment.requestPrefix + id, content: screen, trigger: nil))
         }
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
     }
 
     override func broadcastPaused() { changeState("paused", active: false) }
@@ -615,7 +623,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
         trainingSaved.insert(fingerprint)
         trainingPerApp[platform, default: 0] += 1
         trainingFiles[offerId] = (url, name)
-        return "training screen kept (attached to the verdict)"
+        return "training screen kept (own silent notification)"
     }
 
     private func mapAnalysis(of frame: CIImage, summary: OfferReader.Summary, reader: OfferReader) -> OfferReader.MapAnalysis? {

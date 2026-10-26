@@ -44,6 +44,10 @@ enum TrainingCapture {
             DispatchQueue.main.async {
                 saving = false
                 guard ok else { return }
+                // The silent notifications that carried them are done: out of Notification Center (and their images out
+                // of iOS's attachment store).
+                UNUserNotificationCenter.current().removeDeliveredNotifications(
+                    withIdentifiers: screens.map(\.id).filter { $0.hasPrefix(TrainingAttachment.requestPrefix) })
                 let ids = (UserDefaults.standard.stringArray(forKey: doneKey) ?? []) + screens.map(\.id)
                 UserDefaults.standard.set(Array(ids.suffix(300)), forKey: doneKey)
                 UserDefaults.standard.set(savedCount + screens.count, forKey: "trainingSavedCount")
