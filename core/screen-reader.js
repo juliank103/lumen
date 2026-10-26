@@ -266,8 +266,10 @@
       f.appMinutes = Number(m[1]); f.milesText = m[2];
       // Long trips read "1 hr 4 min (17.3 mi) total": the hour counts too (Oct 21 export: two Uber offers read as 4 and 1
       // minutes, showing $46/hr and $68/hr).
-      const hm = /(\d{1,2})\s*h(?:r|our)?s?\s*(\d{1,2})\s*min/i.exec(total.text);
-      if (hm) f.appMinutes = Number(hm[1]) * 60 + Number(hm[2]);
+      // A lone "1" before "hr" is often read as "I", "l" or "|" ("O I hr 31 min (33.8 mi) total", Oct 26: five long
+      // Uber package trips read as 9–31 min and flagged "time and miles don't fit").
+      const hm = /(?:^|[^A-Za-z0-9])(\d{1,2}|[Il|])\s*h(?:r|our)?s?\s*(\d{1,2})\s*min/i.exec(total.text);
+      if (hm) f.appMinutes = Number(/^\d+$/.test(hm[1]) ? hm[1] : 1) * 60 + Number(hm[2]);
       const next = below(lines, total);
       if (next[0] && !isAddress(next[0].text)) f.merchants.push(next[0].text);
       const area = next[1] && /,\s*([A-Za-z][A-Za-z .'-]{2,30})$/.exec(next[1].text);
@@ -311,8 +313,8 @@
       const m = /(\d{1,2})\s*stops?\s*\(\s*([\d.]+)\s*mi\)(?:\s*\S\s*(\d{1,3})\s*min)?/i.exec(stops.text);
       f.milesText = m[2]; if (m[3]) f.appMinutes = Number(m[3]); f.stopCount = Number(m[1]); anchor = stops;
       // Long batches: "4 stops (13.5 mi) · 1 hr16 min", "1 hr O min" (Oct 22 export: 21 DoorDash offers had no time).
-      const hm = /\)\s*\S?\s*(\d{1,2})\s*hrs?\s*(?:([\dOo]{1,2})\s*min)?/i.exec(stops.text);
-      if (hm) f.appMinutes = Number(hm[1]) * 60 + (hm[2] ? Number(hm[2].replace(/[Oo]/g, '0')) : 0);
+      const hm = /\)\s*\S?\s*(\d{1,2}|[Il|])\s*hrs?\s*(?:([\dOo]{1,2})\s*min)?/i.exec(stops.text);
+      if (hm) f.appMinutes = Number(/^\d+$/.test(hm[1]) ? hm[1] : 1) * 60 + (hm[2] ? Number(hm[2].replace(/[Oo]/g, '0')) : 0);
       f.layout = 'doordash.offer_card_stops';
     } else if (plain) {
       f.milesText = /^([\d.]+)/.exec(plain.text)[1]; anchor = plain; f.layout = 'doordash.offer_card';
