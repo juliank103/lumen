@@ -3,7 +3,6 @@ import Vision
 import CoreImage
 import ImageIO
 import UserNotifications
-import Photos
 
 final class SampleHandler: RPBroadcastSampleHandler {
     // Offer cards in the user's screenshots start at 47–55% of screen height.
@@ -34,11 +33,9 @@ final class SampleHandler: RPBroadcastSampleHandler {
     private var notifiedOffers: [String: Date] = [:]
     /// A map that couldn't be read yet: run again on the next frame of the same offer (only touched on `processing`).
     private var mapRetry: (fingerprint: String, attempt: Int, run: (CIImage) -> Void)?
-    /// Offers whose screen was saved for training this broadcast (touched only on `processing`), and the last save
-    /// error, reported on the next offer's trace.
+    /// Offers whose screen was kept for training this broadcast, and how many per app (touched only on `processing`).
     private var trainingSaved = Set<String>()
     private var trainingPerApp: [String: Int] = [:]
-    private var trainingProblem: String?
     /// The last few readings of the card on screen (8 s): an offer goes out when one reading of app, pay, and miles
     /// has at least two votes and more than any other (user, Oct 21: vote across reads).
     private var recentReads: [(fingerprint: String, at: Date)] = []
@@ -583,38 +580,31 @@ final class SampleHandler: RPBroadcastSampleHandler {
     }()
 
     /// Training screens (user, Oct 25: "capture the offer screens… especially Grubhub"): with the app's switch on, the
-    /// offer frame the reader used goes to Photos at 720 px wide (what the pin model trains on), once per offer and at
-    /// most 15 DoorDash, 15 Uber and 60 Grubhub a broadcast, named "__APP_NAME__ <time> <app>.jpg" for the PC's marking tool. Returns a note for the trace.
+    /// offer frame the reader used is kept at 720 px wide (what the pin model trains on) and handed to the app, which
+    /// saves it to Photos; once per offer and at most 15 DoorDash, 15 Uber and 60 Grubhub a broadcast, named
+    /// "__APP_NAME__ <time> <app>.jpg" for the PC's marking tool. Never Photos from here: loading it in this ~50 MB extension
+    /// got the reader killed on the first offer, so no verdicts went out (Oct 25). Returns a note for the trace.
     private func saveTrainingScreen(_ frame: CIImage, platform: String, fingerprint: String) -> String? {
         guard Bridge.read("training-capture").map({ String(decoding: $0, as: UTF8.self) == "on" }) == true,
               !trainingSaved.contains(fingerprint) else { return nil }
-        if let problem = trainingProblem { trainingProblem = nil; return "training screen: " + problem }
         // Per app (user, Oct 25: Grubhub offers are the rarest and the most needed): DoorDash and Uber 15 a shift each,
         // Grubhub 60.
         let cap = platform == "grubhub" ? 60 : 15
         guard trainingPerApp[platform, default: 0] < cap else { return nil }
-        let status = PHPhotoLibrary.authorizationStatus(for: .addOnly)
-        guard status != .denied, status != .restricted else { return "training screen not saved (no Photos permission)" }
         let extent = frame.extent, scale = 720 / extent.width
         let small = frame.transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
             .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
               let jpeg = imageContext.jpegRepresentation(of: small, colorSpace: space,
-                                                         options: [CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): 0.85])
-        else { return "training screen not saved (image)" }
+                                                         options: [CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): 0.75])
+        else { return "training screen not kept (image)" }
+        let name = "__APP_NAME__ " + Self.trainingStamp.string(from: Date()) + " " + platform + ".jpg"
+        guard let waiting = TrainingHandoff.add(jpeg, name: name) else {
+            return "training screen not kept (\(TrainingHandoff.maxWaiting) already waiting for the app)"
+        }
         trainingSaved.insert(fingerprint)
         trainingPerApp[platform, default: 0] += 1
-        let name = "__APP_NAME__ " + Self.trainingStamp.string(from: Date()) + " " + platform + ".jpg"
-        PHPhotoLibrary.shared().performChanges({
-            let options = PHAssetResourceCreationOptions()
-            options.originalFilename = name
-            PHAssetCreationRequest.forAsset().addResource(with: .photo, data: jpeg, options: options)
-        }, completionHandler: { [weak self] ok, error in
-            guard !ok, let self else { return }
-            let reason = error?.localizedDescription ?? "no reason given"
-            self.processing.async { self.trainingProblem = "Photos refused the last one (" + reason + ")" }
-        })
-        return "training screen saved (" + (status == .authorized ? "Photos" : "Photos, permission \(status.rawValue)") + ")"
+        return "training screen kept (\(waiting) waiting for the app)"
     }
 
     private func mapAnalysis(of frame: CIImage, summary: OfferReader.Summary, reader: OfferReader) -> OfferReader.MapAnalysis? {

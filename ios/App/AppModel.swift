@@ -142,6 +142,8 @@ final class AppModel: ObservableObject {
         }
         TripActivityController.refresh(TripStore.shared.active)
         RestaurantStore.shared.update(offers: offers, trips: TripStore.shared.history + [TripStore.shared.active].compactMap { $0 })
+        // Offer screens the reader handed over (training): into Photos while the app is in front.
+        if TrainingHandoff.waiting > 0 { TrainingCapture.drain() }
     }
 
     /// How much longer each app's orders really take than estimates for offers with no time (Grubhub), for the reader.
