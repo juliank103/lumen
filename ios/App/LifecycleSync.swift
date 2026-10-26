@@ -12,11 +12,14 @@ import UserNotifications
 ///    minutes); a different store accepts nothing.
 /// 3. Only pickup screens (heading to / at the store) accept. Customer-side screens never create an order: they move an
 ///    existing one, and for an order __APP_NAME__ doesn't know they send a "did __APP_NAME__ miss one?" notification.
-/// 4. No choosing: without a store on screen, more than one recent offer from that app means no accept.
+/// 4. No choosing: without a store on screen, more than one recent offer from that app means no accept — unless the
+///    newest one is under 2 minutes old and nothing came after it (Oct 26): that's the card just accepted.
 /// 5. A passed offer stays passed: once the app is back to waiting for offers, or shows a newer offer, an older one is
 ///    accepted only through its store on a pickup screen.
 /// 6. Another app's order in progress: a screen "for" an app with no order is likely a misread — no store, no accept.
-/// 7. One match only (Oct 22): a store code that fits more than one recent offer accepts nothing.
+/// 7. One match only (Oct 22): a store code that fits more than one recent offer accepts only the newest of them, and only
+///    if no other offer from that app came after it (Oct 26: busy shifts repeat stores — Cafe Zupas, Chipotle, Potbelly
+///    each had an earlier offer, and no order of the shift was caught).
 /// 8. A removed order stays removed (Oct 22: New York Slices came back 5 times after being deleted): an offer whose order
 ///    was removed is never accepted from a screen again, nor is any other offer from that store for 30 minutes.
 /// A screen past a step that wasn't seen (e.g. "heading to the customer" without "left the store") fills that step in
@@ -77,14 +80,19 @@ final class LifecycleSync {
             if openOrderShows(store, platform) { return }
             if TripStore.shared.recentlyRemovedStores(platform, now: now).contains(store) { return }
             let matches = candidates(platform, now, within: Self.storeMatchWindow).filter { Self.storeCodes($0).contains(store) }
-            // The same card read twice is one offer; two different offers with this code is a guess.
+            // The same card read twice is one offer. Several offers with this code (Oct 26: every order of the shift had
+            // an earlier offer from the same store, so none was caught): the newest, if no other offer from the app came
+            // after it — the app only lets you accept the card on screen, so the older ones were passed (rule 5).
             if let offer = matches.last, Set(matches.map { $0.offerId ?? $0.id }).count == 1 { accept(offer, now) }
+            else if let newest = matches.max(by: { $0.seenAt < $1.seenAt }), isNewestOffer(newest) { accept(newest, now) }
             return
         }
-        // No store on screen: rules 1, 4, 5, 6 — a fresh accept of the only recent offer, never a stack or a guess.
+        // No store on screen: rules 1, 4, 5, 6 — a fresh accept of the offer on screen, never a stack or a guess: the only
+        // recent offer, or the newest one when it's under 2 minutes old (the card just accepted).
         guard !hasOpenOrder(platform), !otherAppBusy, pending(.arrivedStore, platform) == nil else { return }
         let recent = candidates(platform, now, within: Self.offerLifetime)
-        guard recent.count == 1, let offer = recent.first, isNewestOffer(offer) else { return }
+        guard let offer = recent.max(by: { $0.seenAt < $1.seenAt }), isNewestOffer(offer),
+              recent.count == 1 || now.timeIntervalSince(offer.seenAt) < 120 else { return }
         accept(offer, now)
     }
 

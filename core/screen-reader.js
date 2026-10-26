@@ -352,8 +352,12 @@
       }
     }
     const drops = lines.filter(l => /Customer dropoff/i.test(l.text)).length;
-    const multiple = lines.map(l => /Multiple dropoffs\s*\((\d+)\s*stops?\)/i.exec(l.text)).find(Boolean);
-    f.orderCount = multiple ? Number(multiple[1]) : drops || null;
+    // The line is often cut at the screen edge ("Multiple dropoffs (2 sto", Oct 26: counted as 1 drop-off): the number
+    // is enough; with none readable, the card's stops minus its stores.
+    const multiple = lines.map(l => /Multiple dropoffs\s*\((\d+)/i.exec(l.text)).find(Boolean);
+    const multipleNoCount = !multiple && lines.some(l => /Multiple dropoffs/i.test(l.text));
+    const fromStops = f.stopCount && f.merchants.length ? f.stopCount - f.merchants.length : 0;
+    f.orderCount = multiple ? Number(multiple[1]) : multipleNoCount ? Math.max(2, fromStops) : drops || null;
     // An add-on ("+$9.15", "+1 stop") also lists the order already in hand: count only what it adds.
     if (lines.some(l => /^\+\s?\$?\d/.test(String(l.raw || '').trim()))) { f.addOn = true; f.orderCount = f.stopCount || 1; }
   }
