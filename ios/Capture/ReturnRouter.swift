@@ -72,6 +72,8 @@ final class ReturnRouter: NSObject, CLLocationManagerDelegate {
             manager.delegate = self
             manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
             manager.distanceFilter = 50
+            // Keep listening while parked: iOS may otherwise pause updates for a phone that isn't moving.
+            manager.pausesLocationUpdatesAutomatically = false
             manager.startUpdatingLocation()
             self.location = manager
         }
@@ -90,10 +92,14 @@ final class ReturnRouter: NSObject, CLLocationManagerDelegate {
 
     private let fixLock = NSLock()
     private var lastPhoneFix: (lat: Double, lon: Double, at: Date)?
-    /// The phone's own position if fresh (≤ 3 min), readable from any queue: anchors the map's driver dot.
+    /// How old the last fix may be. Updates come only after 50 m of movement, so a parked phone gets none: the old
+    /// 3-minute limit called it "position unknown" while the driver sat waiting for offers (Oct 26: 9 of 62 offers).
+    /// While updates are on, no update means no move; 30 minutes bounds a stuck location service.
+    static let fixMaxAge: TimeInterval = 1800
+    /// The phone's own position, readable from any queue: anchors the map's driver dot.
     var phoneFix: (lat: Double, lon: Double)? {
         fixLock.lock(); defer { fixLock.unlock() }
-        guard let fix = lastPhoneFix, Date().timeIntervalSince(fix.at) < 180 else { return nil }
+        guard let fix = lastPhoneFix, Date().timeIntervalSince(fix.at) < Self.fixMaxAge else { return nil }
         return (fix.lat, fix.lon)
     }
 
@@ -102,7 +108,7 @@ final class ReturnRouter: NSObject, CLLocationManagerDelegate {
     /// A fresh phone fix, else the driver dot read off the offer map.
     private func currentPosition(mapCurrent: (Double, Double)?) -> (coordinate: CLLocationCoordinate2D, source: String)? {
         if let fix = latestFix ?? location?.location, fix.horizontalAccuracy >= 0, fix.horizontalAccuracy < 500,
-           Date().timeIntervalSince(fix.timestamp) < 180 {
+           Date().timeIntervalSince(fix.timestamp) < Self.fixMaxAge {
             return (fix.coordinate, "phone location")
         }
         if let mapCurrent { return (CLLocationCoordinate2D(latitude: mapCurrent.0, longitude: mapCurrent.1), "map dot") }
