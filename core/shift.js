@@ -1182,7 +1182,18 @@
     const target = valid(input.targetCents) && input.targetCents > 0 ? input.targetCents : null;
     const out = { targetCents: target, earnedCents: earned, remainingCents: target === null ? null : Math.max(0, target - earned),
       hours: 0, expectedCents: 0, reachable: true, historyHours: Math.round(totalMinutes / 6) / 10,
-      overallHourlyCents: overall === null ? null : Math.round(overall), blocks: [] };
+      overallHourlyCents: overall === null ? null : Math.round(overall), blocks: [], blockedHours: 0 };
+    // Days and shifts you won't work (user, Oct 26): "mon:dinner" (Monday dinner), "*:late_night" (every late night),
+    // "sat:*" (all Saturday). Early morning counts as late night. Local time, by the hour's middle.
+    const blocked = new Set(input.blocked || []);
+    const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+    const isBlocked = t => {
+      const l = localMinute(new Date(t + 30 * 60000).toISOString(), off);
+      let part = dayPart(l.minuteOfDay).key;
+      if (part === 'early_morning') part = 'late_night';
+      const day = DAYS[l.weekday];
+      return blocked.has(day + ':' + part) || blocked.has('*:' + part) || blocked.has(day + ':*');
+    };
     if (target === null || overall === null || !valid(we) || out.remainingCents === 0) return out;
     // Expected $/hr per cell, with one hour at the overall rate mixed in so a single lucky hour doesn't dominate.
     const rate = c => (pay[c] + overall) / (minutes[c] / 60 + 1);
@@ -1190,6 +1201,7 @@
     for (let t = Math.ceil(now / hourMs) * hourMs; t + hourMs <= we; t += hourMs) {
       const c = cellOf(t);
       if (hourWorked[c % 24] < 60) continue; // Never suggest an hour of the day you've never driven.
+      if (blocked.size && isBlocked(t)) { out.blockedHours++; continue; }
       candidates.push({ t, rate: rate(c) });
     }
     candidates.sort((a, b) => b.rate - a.rate || a.t - b.t);
