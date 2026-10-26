@@ -110,10 +110,13 @@ final class AppModel: ObservableObject {
             : settings.alertStyle == .alert ? "Persistent" : "Temporary"
         summaryStatus = settings.scheduledDeliverySetting == .enabled ? "On (holds offers)" : "Off"
         var list = (try? LiveOfferStorage.read()) ?? []
-        for note in await UNUserNotificationCenter.current().deliveredNotifications() {
+        let delivered = await UNUserNotificationCenter.current().deliveredNotifications()
+        for note in delivered {
             if let offer = LiveOfferStorage.fromNotification(note.request.content.userInfo),
                !list.contains(where: { $0.id == offer.id }) { list.append(offer) }
         }
+        // Offer screens kept for training ride on the verdict notifications: into Photos.
+        TrainingCapture.collect(from: delivered)
         // Keep every offer in the app's own archive (the shared list holds 100; notifications get cleared).
         var known = Set(archive.map(\.id)), added: [LiveOffer] = []
         for offer in list where !known.contains(offer.id) && !deletedOffers.contains(offer.offerId ?? offer.id) {
@@ -142,8 +145,6 @@ final class AppModel: ObservableObject {
         }
         TripActivityController.refresh(TripStore.shared.active)
         RestaurantStore.shared.update(offers: offers, trips: TripStore.shared.history + [TripStore.shared.active].compactMap { $0 })
-        // Offer screens the reader handed over (training): into Photos while the app is in front.
-        if TrainingHandoff.waiting > 0 { TrainingCapture.drain() }
     }
 
     /// How much longer each app's orders really take than estimates for offers with no time (Grubhub), for the reader.

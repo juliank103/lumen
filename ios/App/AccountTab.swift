@@ -104,7 +104,7 @@ struct AccountTab: View {
                     Toggle("Save offer screens to Photos", isOn: $trainingCapture)
                         .onChange(of: trainingCapture) { _, on in TrainingCapture.set(on) }
                     if trainingCapture {
-                        Text(TrainingCapture.permission + " · \(TrainingCapture.savedCount) saved, \(TrainingHandoff.waiting) waiting. The reader keeps each offer screen (up to 15 DoorDash, 15 Uber and 60 Grubhub a shift); __APP_NAME__ moves them into Photos › Recents as \"__APP_NAME__ <time> <app>\" whenever it's open. Move them to the PC's pin marking tool, then delete them.")
+                        Text(TrainingCapture.permission + " · \(TrainingCapture.savedCount) saved. The reader keeps each offer screen (up to 15 DoorDash, 15 Uber and 60 Grubhub a shift) with its notification; __APP_NAME__ moves them into Photos › Recents as \"__APP_NAME__ <time> <app>\" when you open it. Open __APP_NAME__ before clearing offer notifications. Move them to the PC's pin marking tool, then delete them.")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                     NavigationLink { GridwiseImportView() } label: { Label("Import from Gridwise", systemImage: "square.and.arrow.down.on.square") }

@@ -1,36 +1,51 @@
 import Foundation
 import Photos
+import UserNotifications
 
 /// "Save offer screens to Photos" (user, Oct 25: "capture/screenshot the offer screens… especially from Grubhub").
-/// While on, the screen reader keeps each offer screen it reads (720 px wide) and hands it to the app (TrainingHandoff);
-/// the app saves them to Photos when it's in front, to be marked in the PC's pin marking tool. The reader never writes to
-/// Photos itself (that killed it, Oct 25). The switch reaches the reader through the bridge and, in case the bridge
-/// doesn't work on this install, as a signal too. Photos asks for "add photos" permission the first time.
+/// While on, the screen reader keeps each offer screen it reads (720 px wide) on that offer's verdict notification
+/// (TrainingAttachment); when the app collects the offers it saves the screens to Photos, to be marked in the PC's pin
+/// marking tool. The reader never writes to Photos itself (that killed it, Oct 25). The switch reaches the reader
+/// through the bridge and as a signal — also each time the reader starts. Photos asks for "add photos" permission first.
 enum TrainingCapture {
     static var isOn: Bool { UserDefaults.standard.bool(forKey: "trainingCapture") }
     /// Screens saved to Photos so far (for the switch's footer).
     static var savedCount: Int { UserDefaults.standard.integer(forKey: "trainingSavedCount") }
+    /// Notifications whose screen is already in Photos (the last 300), so a screen is saved once.
+    private static let doneKey = "trainingSavedNotifications"
+    private static var saving = false
 
-    /// Move the screens the reader handed over into Photos (app in front: at launch, on return, every 5 minutes).
-    private static var draining = false
-
-    static func drain() {
+    /// Save the screens riding on delivered offer notifications (the app collects offers at launch, on return, and
+    /// while open). A notification cleared before __APP_NAME__ was opened takes its screen with it.
+    static func collect(from delivered: [UNNotification]) {
         let status = PHPhotoLibrary.authorizationStatus(for: .addOnly)
-        guard !draining, status == .authorized || status == .limited else { return }
-        let (screens, done) = TrainingHandoff.take()
+        guard !saving, status == .authorized || status == .limited else { return }
+        let done = Set(UserDefaults.standard.stringArray(forKey: doneKey) ?? [])
+        var screens: [(id: String, data: Data, name: String)] = []
+        for note in delivered where !done.contains(note.request.identifier) {
+            guard let attachment = note.request.content.attachments.first(where: { $0.identifier == TrainingAttachment.identifier })
+            else { continue }
+            let url = attachment.url
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            guard let data = try? Data(contentsOf: url) else { continue }
+            let name = note.request.content.userInfo[TrainingAttachment.nameKey] as? String ?? "__APP_NAME__ training.jpg"
+            screens.append((note.request.identifier, data, name))
+        }
         guard !screens.isEmpty else { return }
-        draining = true
+        saving = true
         PHPhotoLibrary.shared().performChanges({
-            for (data, name) in screens {
+            for screen in screens {
                 let options = PHAssetResourceCreationOptions()
-                options.originalFilename = name
-                PHAssetCreationRequest.forAsset().addResource(with: .photo, data: data, options: options)
+                options.originalFilename = screen.name
+                PHAssetCreationRequest.forAsset().addResource(with: .photo, data: screen.data, options: options)
             }
         }, completionHandler: { ok, _ in
             DispatchQueue.main.async {
-                draining = false
+                saving = false
                 guard ok else { return }
-                done()
+                let ids = (UserDefaults.standard.stringArray(forKey: doneKey) ?? []) + screens.map(\.id)
+                UserDefaults.standard.set(Array(ids.suffix(300)), forKey: doneKey)
                 UserDefaults.standard.set(savedCount + screens.count, forKey: "trainingSavedCount")
             }
         })
@@ -44,13 +59,13 @@ enum TrainingCapture {
         }
     }
 
-    /// Hand the switch to the reader again (at launch and every 5 minutes, like the other settings).
+    /// Hand the switch to the reader again (at launch, every 5 minutes, and when the reader starts).
     static func republish() {
         Bridge.publish("training-capture", Data((isOn ? "on" : "off").utf8))
         (isOn ? Signal.trainingOn : Signal.trainingOff).post()
     }
 
-    /// For the switch's footer: whether Photos will take the reader's images.
+    /// For the switch's footer: whether Photos will take the screens.
     static var permission: String {
         switch PHPhotoLibrary.authorizationStatus(for: .addOnly) {
         case .authorized, .limited: return "Photos: allowed"

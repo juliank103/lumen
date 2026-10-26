@@ -36,6 +36,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
     /// Offers whose screen was kept for training this broadcast, and how many per app (touched only on `processing`).
     private var trainingSaved = Set<String>()
     private var trainingPerApp: [String: Int] = [:]
+    /// Kept screens waiting for their offer's verdict notification: offer id → (file, name).
+    private var trainingFiles: [String: (url: URL, name: String)] = [:]
     /// The last few readings of the card on screen (8 s): an offer goes out when one reading of app, pay, and miles
     /// has at least two votes and more than any other (user, Oct 21: vote across reads).
     private var recentReads: [(fingerprint: String, at: Date)] = []
@@ -108,13 +110,19 @@ final class SampleHandler: RPBroadcastSampleHandler {
     }
 
     private func notify(id: String, title: String, body: String, thread: String = "status", userInfo: [AnyHashable: Any] = [:],
-                        category: String? = nil) {
+                        category: String? = nil, training: (url: URL, name: String)? = nil) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.threadIdentifier = thread
         content.userInfo = userInfo
         if let category { content.categoryIdentifier = category }
+        // A kept training screen rides along, thumbnail hidden; iOS moves the file into its own store.
+        if let training, let attachment = try? UNNotificationAttachment(identifier: TrainingAttachment.identifier, url: training.url, options: [
+            UNNotificationAttachmentOptionsThumbnailHiddenKey: true, UNNotificationAttachmentOptionsTypeHintKey: "public.jpeg"]) {
+            content.attachments = [attachment]
+            content.userInfo[TrainingAttachment.nameKey] = training.name
+        }
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
     }
 
@@ -359,7 +367,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
         processing.asyncAfter(deadline: .now() + 12) { deliver(nil, "Apple Maps did not answer within 12 seconds") }
         guard summary.dropoffQuery == nil else {
             trace.append("drop-off text on card")
-            if let note = saveTrainingScreen(frame, platform: summary.platform, fingerprint: summary.fingerprint) { trace.append(note) }
+            if let note = saveTrainingScreen(frame, platform: summary.platform, fingerprint: summary.fingerprint, offerId: offerId) { trace.append(note) }
             return fallback(nil)
         }
         // The map is read from this frame, and again from the next ones (up to 3 looks, ~6 s) while it shows nothing
@@ -384,7 +392,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
             return fallback("map could not be read")
         }
         if map.pins == 0 && map.labels.isEmpty { return lookAgain("empty map") }
-        if let note = saveTrainingScreen(frame, platform: summary.platform, fingerprint: summary.fingerprint) { trace.append(note) }
+        if let note = saveTrainingScreen(frame, platform: summary.platform, fingerprint: summary.fingerprint, offerId: offerId) { trace.append(note) }
         mapJSON = map.json
         if let note = map.note { trace.append(note) }
         trace.append("map labels read: " + (map.labels.joined(separator: "/").isEmpty ? "none" : map.labels.joined(separator: "/")))
@@ -442,9 +450,10 @@ final class SampleHandler: RPBroadcastSampleHandler {
         var userInfo: [AnyHashable: Any] = [:]
         if let value = LiveOfferStorage.notificationValue(offer) { userInfo[LiveOfferStorage.notificationKey] = value }
         let notice = offer.notice ?? offer.detail
+        let training = offer.offerId.flatMap { trainingFiles.removeValue(forKey: $0) }
         notify(id: offer.offerId ?? offer.id, title: offer.headline,
                body: Verdict(notice: offer.notice).dot + " " + notice + (offer.why.map { "\n" + $0 } ?? ""), thread: "offers", userInfo: userInfo,
-               category: NotificationActions.offerCategory)
+               category: NotificationActions.offerCategory, training: training)
         Signal.offer.post() // The app shows it on Home and in the Dynamic Island.
         // Journal (addendum §8–11): append-only events — what the card showed, then each prediction with the logic
         // versions behind it. Times carry the local UTC offset so learning can bucket by the driver's own clock.
@@ -580,11 +589,13 @@ final class SampleHandler: RPBroadcastSampleHandler {
     }()
 
     /// Training screens (user, Oct 25: "capture the offer screens… especially Grubhub"): with the app's switch on, the
-    /// offer frame the reader used is kept at 720 px wide (what the pin model trains on) and handed to the app, which
-    /// saves it to Photos; once per offer and at most 15 DoorDash, 15 Uber and 60 Grubhub a broadcast, named
-    /// "__APP_NAME__ <time> <app>.jpg" for the PC's marking tool. Never Photos from here: loading it in this ~50 MB extension
-    /// got the reader killed on the first offer, so no verdicts went out (Oct 25). Returns a note for the trace.
-    private func saveTrainingScreen(_ frame: CIImage, platform: String, fingerprint: String) -> String? {
+    /// offer frame the reader used is kept at 720 px wide (what the pin model trains on) and rides on the offer's verdict
+    /// notification as a hidden attachment — the one way offers already reach the app on this install (no App Group; the
+    /// pasteboard handoff never arrived, Oct 26: "0 saved, 0 waiting"). The app saves it to Photos when it collects the
+    /// offers. Once per offer, at most 15 DoorDash, 15 Uber and 60 Grubhub a broadcast, named "__APP_NAME__ <time> <app>.jpg"
+    /// for the PC's marking tool. Never Photos from here: loading it in this ~50 MB extension got the reader killed on the
+    /// first offer, so no verdicts went out (Oct 25). Returns a note for the trace.
+    private func saveTrainingScreen(_ frame: CIImage, platform: String, fingerprint: String, offerId: String) -> String? {
         guard Bridge.read("training-capture").map({ String(decoding: $0, as: UTF8.self) == "on" }) == true,
               !trainingSaved.contains(fingerprint) else { return nil }
         // Per app (user, Oct 25: Grubhub offers are the rarest and the most needed): DoorDash and Uber 15 a shift each,
@@ -599,12 +610,12 @@ final class SampleHandler: RPBroadcastSampleHandler {
                                                          options: [CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): 0.75])
         else { return "training screen not kept (image)" }
         let name = "__APP_NAME__ " + Self.trainingStamp.string(from: Date()) + " " + platform + ".jpg"
-        guard let waiting = TrainingHandoff.add(jpeg, name: name) else {
-            return "training screen not kept (\(TrainingHandoff.maxWaiting) already waiting for the app)"
-        }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("training-\(offerId).jpg")
+        do { try jpeg.write(to: url) } catch { return "training screen not kept (file)" }
         trainingSaved.insert(fingerprint)
         trainingPerApp[platform, default: 0] += 1
-        return "training screen kept (\(waiting) waiting for the app)"
+        trainingFiles[offerId] = (url, name)
+        return "training screen kept (attached to the verdict)"
     }
 
     private func mapAnalysis(of frame: CIImage, summary: OfferReader.Summary, reader: OfferReader) -> OfferReader.MapAnalysis? {
