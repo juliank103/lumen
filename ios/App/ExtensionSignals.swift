@@ -50,8 +50,10 @@ final class ExtensionSignals: ObservableObject {
         case .loaded: loadedAt = now
         case .started:
             startedAt = now; finishedAt = nil; readerFailed = false
-            // The reader just started: hand it the training switch (it may have missed the flip).
+            // The reader just started: hand it the training switch (it may have missed the flip) and the settings —
+            // rules and the learned drive-back share — as signals (Oct 27: the bridge never delivered them).
             TrainingCapture.republish()
+            SettingsSignal.send(rules: RulesStore.current, timing: TimingStore.current)
             MainActor.assumeIsolated { ShiftStore.shared.readingStarted() }
         case .frame: frames += 1; lastFrameAt = now
         case .offer:

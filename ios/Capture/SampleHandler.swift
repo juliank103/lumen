@@ -62,6 +62,9 @@ final class SampleHandler: RPBroadcastSampleHandler {
     }
 
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
+        // Listening before saying "started": the app answers "started" with the settings (Oct 27: the bridge never
+        // delivered them, so the reader counted the whole drive back toward $/hr).
+        SettingsSignal.listen()
         Signal.started.post()
         // No App Group on this install: say whether the app's settings came through the bridge instead.
         if (try? AppGroup.container()) == nil, Bridge.read("rules") != nil || Bridge.read("timing") != nil { Signal.bridgeRead.post() }

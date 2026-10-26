@@ -163,11 +163,13 @@ final class AppModel: ObservableObject {
             timing.returnShareOrders = share.orders
         }
         TimingStore.save(timing)
+        SettingsSignal.send(rules: RulesStore.current, timing: timing)
     }
 
     func setRules(_ new: Rules) {
         rulesShared = RulesStore.save(new)
         rules = RulesStore.current
+        SettingsSignal.send(rules: rules, timing: TimingStore.current)
     }
 
     func chooseDestination(_ choice: ReturnDestination) {
