@@ -378,24 +378,26 @@ final class SampleHandler: RPBroadcastSampleHandler {
             if let note = saveTrainingScreen(frame, platform: summary.platform, fingerprint: summary.fingerprint, offerId: offerId) { trace.append(note) }
             return fallback(nil)
         }
-        // The map is read from this frame, and again from the next ones (up to 3 looks, ~6 s) while it shows nothing
+        // The map is read from this frame, and again from the next one (up to 2 looks, ~3 s; Oct 27) while it shows nothing
         // usable (user, Oct 24: zoomed-out maps; the export showed half of map readings found no pins and no towns — the
         // map was still loading or zooming, and the reader never looked again). A zoom-in during those seconds is used.
         func readMap(_ frame: CIImage, attempt: Int) {
         func lookAgain(_ reason: String) {
-            guard attempt < 3, !delivered else { return fallback(reason) }
+            // One more look at most, ~3 s (Oct 27: three looks made those verdicts take 7–15 s; a map still loading
+            // after that falls back to the card's estimate).
+            guard attempt < 2, !delivered else { return fallback(reason) }
             trace.append("look \(attempt): \(reason)")
             let fingerprint = summary.fingerprint
             self.mapRetry = (fingerprint, attempt + 1, { next in readMap(next, attempt: attempt + 1) })
             // The card went away: use what there is.
-            self.processing.asyncAfter(deadline: .now() + 4) {
+            self.processing.asyncAfter(deadline: .now() + 3) {
                 if let retry = self.mapRetry, retry.fingerprint == fingerprint, retry.attempt == attempt + 1 {
                     self.mapRetry = nil
                     fallback(reason)
                 }
             }
         }
-        guard let map = mapAnalysis(of: frame, summary: summary, reader: reader) else {
+        guard let map = mapAnalysis(of: frame, summary: summary, reader: reader, phoneKnown: router.phoneFix != nil) else {
             trace.append("map image unavailable")
             return fallback("map could not be read")
         }
@@ -626,7 +628,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
         return "training screen kept (own silent notification)"
     }
 
-    private func mapAnalysis(of frame: CIImage, summary: OfferReader.Summary, reader: OfferReader) -> OfferReader.MapAnalysis? {
+    private func mapAnalysis(of frame: CIImage, summary: OfferReader.Summary, reader: OfferReader, phoneKnown: Bool) -> OfferReader.MapAnalysis? {
         let extent = frame.extent
         // The whole map from just under the status bar: DoorDash puts pins and town names near the top (Oct 21
         // screenshots; the old 13% cutoff hid a store pin and "Riverside"). Only when a notification banner covers the
@@ -667,6 +669,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
         let aspect = Double(extent.height / extent.width)
         // The pin model, when it's in the build and finds a drop-off; otherwise the pixel rules in map-reader.js.
         var detections: String? = nil
+        var modelDot = false
         var note = String(format: "map %.0f–%.0f%%", top * 100, bottom * 100) + (edge != nil ? " (card edge)" : " (card text)")
         if !PinDetector.shared.available {
             note += " · pin model not loaded"
@@ -679,6 +682,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
             }
             note += " · pin model: " + scores.joined(separator: ", ")
             if found.contains(where: { $0.kind == "customer" }) { detections = PinDetector.json(found) } else { note += " (no customer → pixel rules)" }
+            modelDot = found.contains { $0.kind == "you" }
         } else {
             note += " · pin model: no result"
         }
@@ -688,7 +692,9 @@ final class SampleHandler: RPBroadcastSampleHandler {
         // towns. Both the accurate recognizer and a high-resolution fast pass: iOS 27.0's accurate recognizer was reported
         // to garble text (look-alike letters, junk after digits; research, Oct 24), while fast was unaffected.
         fast.note = note
-        guard fast.labels.count < 2 else { return fast }
+        // The map's text is read again only when the map can't be pinned down without town names: with the phone's
+        // position on the model's blue dot, it can (Oct 27: those extra passes cost about a second per map offer).
+        guard fast.labels.count < 2, !(phoneKnown && detections != nil && modelDot) else { return fast }
         var best = fast
         for lines in [Self.latinOnly(recognize(frame, top: top, bottom: bottom, level: .fast, maxWidth: 1400)),
                       Self.latinOnly(recognize(frame, top: top, bottom: bottom, level: .accurate, maxWidth: 1400))] {
