@@ -51,6 +51,8 @@ enum TimingStore {
             extra += ",\"timeFactors\":" + text
         }
         if timing.returnShare >= 0.3 && timing.returnShare < 1 { extra += String(format: ",\"returnTimeShare\":%.2f", timing.returnShare) }
+        // A lower bar when good offers are rare (Oct 26).
+        if let bar = SlowHours.barJSON() { extra += ",\"slowBar\":" + bar }
         return extra.isEmpty ? rules.settingsJSON : String(rules.settingsJSON.dropLast()) + extra + "}"
     }
 }

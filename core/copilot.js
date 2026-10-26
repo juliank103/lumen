@@ -4,7 +4,7 @@
   const VERSION = 1;
   const PLATFORMS = ['doordash', 'uber_eats', 'grubhub'];
   const DEFAULTS = Object.freeze({ centsPerMile: 100, minimumOfferCents: null,
-    hourlyTargetCents: null, hourlyBasis: 'gross', vehicleCentsPerMile: null, timeFactors: null, returnTimeShare: 1 });
+    hourlyTargetCents: null, hourlyBasis: 'gross', vehicleCentsPerMile: null, timeFactors: null, returnTimeShare: 1, slowBar: null });
   const has = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
   const clone = value => JSON.parse(JSON.stringify(value));
   function assert(ok, message) { if (!ok) throw new Error(message); }
@@ -52,6 +52,12 @@
     if (s.timeFactors !== null) {
       object(s.timeFactors, 'timeFactors');
       for (const k of Object.keys(s.timeFactors)) assert(typeof s.timeFactors[k] === 'number' && s.timeFactors[k] >= 0.5 && s.timeFactors[k] <= 3, 'timeFactors.' + k);
+    }
+    // Slow hours (user, Oct 26): a lower bar for when good offers are rare — { hourlyCents, centsPerMile, band, reason }.
+    if (s.slowBar !== null) {
+      object(s.slowBar, 'slowBar');
+      integer(s.slowBar.hourlyCents, 'slowBar.hourlyCents', 0, 1000000);
+      integer(s.slowBar.centsPerMile, 'slowBar.centsPerMile', 1, 10000);
     }
     return s;
   }

@@ -1277,6 +1277,40 @@
   }
 
   const json = f => (...args) => JSON.stringify(f(...args.map(a => (typeof a === 'string' ? JSON.parse(a) : a))));
+  /* Slow hours (user, Oct 26: "some shifts or consistent times where I need to lower my expectations"). For each weekday
+   * and meal time (lunch 10–15, dinner 15–22, other), how often an offer meeting the full rules came per hour online.
+   * Tier 0 = normal (2+ an hour), 1 = a bit slow (1–2), 2 = slow (½–1), 3 = dead (under ½). A slot needs 2 hours online;
+   * with less, the same meal time on all days (4 hours) stands in. Returns { "1|dinner": 2, … } (weekday 0 = Sunday). */
+  function slowSlots(input) {
+    const off = input.offsetMinutes || 0, rules = input.rules || {}, now = valid(ms(input.now)) ? ms(input.now) : Date.now();
+    const cpm = rules.centsPerMile || 100, hourly = rules.hourlyTargetCents || 2500;
+    const slotOf = t => { const l = localMinute(new Date(t).toISOString(), off), h = l.minuteOfDay / 60;
+      return [l.weekday, h >= 10 && h < 15 ? 'lunch' : h >= 15 && h < 22 ? 'dinner' : 'other']; };
+    const minutes = {}, good = {};
+    const add = (map, key, n) => { map[key] = (map[key] || 0) + n; };
+    for (const sh of input.shifts || []) {
+      const a = ms(sh.startedAt), b = valid(ms(sh.endedAt)) ? ms(sh.endedAt) : now;
+      if (!valid(a) || b <= a || b - a > 24 * 3600000) continue;
+      for (let t = a; t < b; t += 60000) { const [d, p] = slotOf(t); add(minutes, d + '|' + p, 1); add(minutes, '*|' + p, 1); }
+    }
+    for (const o of input.offers || []) {
+      const t = ms(o.seenAt);
+      if (!valid(t) || !valid(o.hourlyCents) || !valid(o.outboundMilliMiles) || !valid(o.returnMilliMiles)) continue;
+      const miles = o.outboundMilliMiles + o.returnMilliMiles;
+      if (miles <= 0 || o.hourlyCents < hourly || o.payCents * 1000 < cpm * miles) continue;
+      const [d, p] = slotOf(t);
+      add(good, d + '|' + p, 1); add(good, '*|' + p, 1);
+    }
+    const tierOf = rate => rate >= 2 ? 0 : rate >= 1 ? 1 : rate >= 0.5 ? 2 : 3;
+    const out = {};
+    for (let d = 0; d < 7; d++) for (const p of ['lunch', 'dinner', 'other']) {
+      const key = d + '|' + p, all = '*|' + p;
+      if ((minutes[key] || 0) >= 120) out[key] = tierOf((good[key] || 0) * 60 / minutes[key]);
+      else if ((minutes[all] || 0) >= 240) out[key] = tierOf((good[all] || 0) * 60 / minutes[all]);
+    }
+    return out;
+  }
+
   const api = { METERS_PER_MILE, SAME_PLACE_MILES, normalizeName, similarity, distanceMiles, emptyDb, matchRestaurant, updateRestaurants,
     mergeRestaurants, renameRestaurant, mergeSuggestions, storeVisits, restaurantStats, mealPeriod, shiftMetrics, toCSV, exportTables,
     rangeMetrics, weekStats, dayPart, dominantPart, DAY_PARTS, zoneHeat, offerWorth, parseGridwise, parseCSV, goalStatus, goals, readerHealth, breakdown, verdictOf, shiftPlan, timeFactors, returnShare,
@@ -1284,7 +1318,7 @@
     updateRestaurantsJSON: json(updateRestaurants), mergeRestaurantsJSON: json(mergeRestaurants), renameRestaurantJSON: json(renameRestaurant),
     mergeSuggestionsJSON: json(mergeSuggestions), restaurantStatsJSON: json(restaurantStats), shiftMetricsJSON: json(shiftMetrics),
     exportTablesJSON: json(exportTables), weekStatsJSON: json(weekStats), zoneHeatJSON: json(zoneHeat), parseGridwiseJSON: json(parseGridwise), goalsJSON: json(goals), readerHealthJSON: json(readerHealth),
-    breakdownJSON: json(breakdown), shiftPlanJSON: json(shiftPlan), timeFactorsJSON: json(timeFactors), returnShareJSON: json(returnShare) };
+    breakdownJSON: json(breakdown), shiftPlanJSON: json(shiftPlan), timeFactorsJSON: json(timeFactors), returnShareJSON: json(returnShare), slowSlots, slowSlotsJSON: json(slowSlots) };
   root.Shift = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

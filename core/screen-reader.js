@@ -674,6 +674,7 @@
    * Grill showed "$10.20/mi · Accept" with nothing saying a drive-back credit did it). Null when there's nothing to say. */
   function whyLine(out, suspect, s) {
     if (suspect) return "Numbers don't fit · check the app";
+    if (out.slowHour) return 'Slow hour · ' + out.slowHour.band + (out.slowHour.reason ? ' · ' + out.slowHour.reason : '');
     const notice = out.notice || '', pay = out.payCents, outbound = out.outboundMilliMiles, ret = out.returnMilliMiles;
     if (pay === null || pay === undefined || outbound === null || outbound === undefined) return null;
     const target = '$' + (s.centsPerMile / 100).toFixed(2).replace(/\.00$/, '') + '/mi';
@@ -795,10 +796,20 @@
     else if (surely) verdictWord = hourlyOk === null ? 'Accept (time unknown)' : 'Accept';
     else if (route.kind === 'worst_case') verdictWord = null;
     else verdictWord = 'Close call';
+    // Slow hours (user, Oct 26: "there are some shifts … where I need to lower my expectations"): when good offers have
+    // been rare here (history at this day and meal time, or none for a while tonight), an offer that misses the rules but
+    // clears the lower bar is a labeled "Accept (slow hour)" — the rules stay the standard. Needs a known $/hr.
+    const bar = s.slowBar;
+    if (verdictWord !== 'Accept' && verdictWord !== 'Accept (time unknown)' && bar && hourly !== null && !summary.suspect
+        && hourly >= bar.hourlyCents && pay * 1000 >= bar.centsPerMile * effective) {
+      verdictWord = 'Accept (slow hour)';
+      out.slowHour = { band: hourly >= 2350 ? 'good' : hourly >= 2100 ? 'step down' : 'bottom of the barrel', reason: bar.reason || null };
+    }
     // "Accept" with under 2 miles of slack is shown as tight.
     const slack = Math.floor(pay * 1000 / s.centsPerMile) - effective;
     // A pass against the longest possible return has more real slack than shown.
     out.tone = verdictWord === 'Decline' ? 'bad' : verdictWord === 'Accept' && (slack >= 2000 || route.kind === 'worst_case') ? 'good' : 'tight';
+    if (out.slowHour) out.tone = 'tight';
     const why = hourlyOk === false && !surelyNot ? ' — below $' + (s.hourlyTargetCents / 100).toFixed(0) + '/hr' : '';
     const kindText = route.kind === 'map' ? ' (map estimate ±' + miles1(valid(route.uncertaintyMilliMiles) ? route.uncertaintyMilliMiles : 1000) + ' mi)'
       : route.kind === 'dropoff_town' ? ' (from town center)' : route.kind === 'worst_case' ? ' (longest possible)' : '';

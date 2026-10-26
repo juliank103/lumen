@@ -35,6 +35,9 @@ final class SampleHandler: RPBroadcastSampleHandler {
     private var mapRetry: (fingerprint: String, attempt: Int, run: (CIImage) -> Void)?
     /// Offers whose screen was kept for training this broadcast, and how many per app (touched only on `processing`).
     private var trainingSaved = Set<String>()
+    /// Slow hours, live: when reading started and when an offer last met the rules (touched only on `processing`).
+    private var readingSince = Date()
+    private var lastGoodOfferAt: Date?
     private var trainingPerApp: [String: Int] = [:]
     /// Kept screens waiting for their offer's verdict notification: offer id → (file, name).
     private var trainingFiles: [String: (url: URL, name: String)] = [:]
@@ -230,6 +233,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
     private func handleOffer(_ lines: [OfferReader.Line], frame: CIImage, capturedAt: Date) throws {
         guard let reader else { return }
         let ocrDoneAt = Date()
+        SlowHours.noteLive(minutesWithoutGood: Int(ocrDoneAt.timeIntervalSince(max(lastGoodOfferAt ?? .distantPast, readingSince)) / 60))
         guard var summary = try reader.summarize(lines, at: capturedAt) else {
             framesWithoutOffer += 1
             if framesWithoutOffer >= 2 { notifiedFingerprint = nil; pendingFingerprint = nil; retriedFingerprint = nil; recentReads = [] }
@@ -460,6 +464,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
     private func store(_ offer: LiveOffer, refined: [String: Any], update: Bool, timings: [String: Int], usedAccurate: Bool,
                        positionKnown: Bool, preliminary: (word: String, notice: String), times: (seen: Date, first: Date, refined: Date)) {
         try? LiveOfferStorage.append(offer)
+        // An offer that met the rules (not a slow-hour accept) resets the slow-hour clock.
+        if offer.notice?.hasSuffix("· Accept") == true { lastGoodOfferAt = Date() }
         var userInfo: [AnyHashable: Any] = [:]
         if let value = LiveOfferStorage.notificationValue(offer) { userInfo[LiveOfferStorage.notificationKey] = value }
         let notice = offer.notice ?? offer.detail

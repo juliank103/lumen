@@ -31,12 +31,18 @@ enum SettingsSignal {
             let factor = timing.factors[app].map { snap(Int(($0 * 100).rounded()), factors) } ?? 100
             post(prefix + "factor.\(app).\(factor)")
         }
+        // Slow hours: each weekday and meal time's tier (0 normal … 3 dead).
+        for (key, tier) in SlowHours.slots() {
+            let parts = key.split(separator: "|")
+            if parts.count == 2 { post(prefix + "slot.\(parts[0]).\(parts[1]).\(max(0, min(3, tier)))") }
+        }
     }
 
     /// The reader: listen for every possible value (once per broadcast).
     static func listen() {
         var names = perMile.map { "cpm.\($0)" } + hourly.map { "hourly.\($0)" } + shares.map { "share.\($0)" }
         for app in apps { names += factors.map { "factor.\(app).\($0)" } }
+        for day in 0..<7 { for part in ["lunch", "dinner", "other"] { names += (0...3).map { "slot.\(day).\(part).\($0)" } } }
         for name in names {
             CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, name, _, _ in
                 guard let full = name?.rawValue as String? else { return }
@@ -55,6 +61,10 @@ enum SettingsSignal {
             var rules = defaults.data(forKey: "rules").flatMap { try? decoder.decode(Rules.self, from: $0) } ?? .defaults
             if parts.first == "cpm" { rules.centsPerMile = value } else { rules.hourlyTargetCents = value }
             defaults.set(try? encoder.encode(rules), forKey: "rules")
+        case "slot" where parts.count == 4:
+            var slots = SlowHours.slots()
+            slots[parts[1] + "|" + parts[2]] = value
+            defaults.set(slots, forKey: SlowHours.storeKey)
         case "share", "factor":
             var timing = defaults.data(forKey: "timing").flatMap { try? decoder.decode(TimingStore.Timing.self, from: $0) } ?? TimingStore.Timing()
             if parts.first == "share" { timing.returnShare = Double(value) / 100 }

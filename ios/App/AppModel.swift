@@ -163,6 +163,13 @@ final class AppModel: ObservableObject {
             timing.returnShareOrders = share.orders
         }
         TimingStore.save(timing)
+        // Slow hours (Oct 26): how often an offer met the rules at each weekday and meal time → a tier per slot.
+        let slotInput = "{\"offers\":\(ShiftEngine.json(encodable: offers.filter { !DemoData.isDemo($0.offerId) })),"
+            + "\"shifts\":\(ShiftEngine.json(encodable: shifts)),\"rules\":\(RulesStore.current.settingsJSON),"
+            + "\"offsetMinutes\":\(ShiftEngine.offsetMinutes),\"now\":\(ShiftEngine.json(ISO8601DateFormatter().string(from: Date())))}"
+        if let slots = ShiftEngine.decode([String: Int].self, ShiftEngine.call("slowSlotsJSON", [slotInput])) {
+            UserDefaults.standard.set(slots, forKey: SlowHours.storeKey)
+        }
         SettingsSignal.send(rules: RulesStore.current, timing: timing)
     }
 
