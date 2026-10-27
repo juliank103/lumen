@@ -156,9 +156,11 @@ struct DashBottomBar: View {
             } else {
                 if shifts.current == nil {
                     // Starting a shift lives on Home (user, Oct 16); it also starts screen reading if that's off.
+                    // Not reading: only open the broadcast sheet; the shift starts when the reader says it started
+                    // (readingStarted). Starting it here swapped this button out while its sheet was up, and the
+                    // broadcast that followed never loaded the reader (Oct 27: no verdicts; the top toggle worked).
                     Button {
-                        shifts.startIfNeeded()
-                        if !reading { BroadcastLauncher.shared.open() }
+                        if reading { shifts.startIfNeeded() } else { BroadcastLauncher.shared.open() }
                     } label: {
                         Text("Start shift").font(.headline.weight(.bold)).foregroundStyle(.white)
                             .frame(maxWidth: .infinity).frame(height: 56)
