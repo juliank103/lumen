@@ -173,6 +173,12 @@ final class AppModel: ObservableObject {
         SettingsSignal.send(rules: RulesStore.current, timing: timing)
     }
 
+    func updateRules(_ change: (inout Rules) -> Void) {
+        var new = rules
+        change(&new)
+        setRules(new)
+    }
+
     func setRules(_ new: Rules) {
         rulesShared = RulesStore.save(new)
         rules = RulesStore.current

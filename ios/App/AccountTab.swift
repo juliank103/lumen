@@ -18,17 +18,61 @@ struct AccountTab: View {
     @State private var editingCost = false
     @State private var costText = ""
 
+    private static let dayLetters = ["S", "M", "T", "W", "T", "F", "S"]
+
+    /// The weekday bar (Oct 27): adjustable days and bar; the reader goes back to the full rules while it's busy.
+    private var weekdayBar: some View {
+        Section {
+            HStack(spacing: 6) {
+                ForEach(0..<7, id: \.self) { day in
+                    let on = model.rules.weekdaySet.contains(day)
+                    Button {
+                        model.updateRules { rules in
+                            var days = rules.weekdaySet
+                            if on { days.remove(day) } else { days.insert(day) }
+                            rules.weekdayDays = days.sorted()
+                        }
+                    } label: {
+                        Text(Self.dayLetters[day])
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity, minHeight: 34)
+                            .background(on ? Theme.neonGreen.opacity(0.25) : Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                            .foregroundStyle(on ? Theme.neonGreen : .secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Calendar.current.weekdaySymbols[day] + (on ? ", weekday bar" : ", full rules"))
+                }
+            }
+            Stepper(value: Binding(get: { model.rules.weekdayHourly }, set: { value in model.updateRules { $0.weekdayHourlyCents = value } }),
+                    in: 1000...6000, step: 50) {
+                row("Hourly", model.rules.weekdayHourlyText)
+            }
+            Stepper(value: Binding(get: { model.rules.weekdayPerMile }, set: { value in model.updateRules { $0.weekdayCentsPerMile = value } }),
+                    in: 50...300, step: 5) {
+                row("Pay per mile", model.rules.weekdayPerMileText)
+            }
+        } header: {
+            HStack {
+                Text("Weekday bar")
+                InfoNote(title: "Weekday bar", text: "On the marked days an offer at this bar is an Accept. 2 offers meeting your full rules within 30 minutes means it's busy: the reader goes back to your full rules, and slow-hour accepts stop.")
+            }
+        } footer: {
+            Text(model.rules.weekdaySet.isEmpty ? "Off: your rules apply every day."
+                 : "Unmarked days use your rules (\(model.rules.hourlyText), \(model.rules.perMileText)/mi).")
+        }
+    }
+
     var body: some View {
         NavigationStack {
             List {
                 Section {
                     Stepper(value: Binding(get: { model.rules.centsPerMile },
-                                           set: { model.setRules(Rules(centsPerMile: $0, hourlyTargetCents: model.rules.hourlyTargetCents)) }),
+                                           set: { value in model.updateRules { $0.centsPerMile = value } }),
                             in: 50...300, step: 5) {
                         row("Pay per mile", model.rules.perMileText + ", incl. return")
                     }
                     Stepper(value: Binding(get: { model.rules.hourlyTargetCents },
-                                           set: { model.setRules(Rules(centsPerMile: model.rules.centsPerMile, hourlyTargetCents: $0)) }),
+                                           set: { value in model.updateRules { $0.hourlyTargetCents = value } }),
                             in: 1000...6000, step: 100) {
                         row("Hourly target", model.rules.hourlyText)
                     }
@@ -50,6 +94,7 @@ struct AccountTab: View {
                         if !model.rulesShared { Text("Reader uses $1/mi and $25/hr on this install.") }
                     }
                 }
+                weekdayBar
                 Section {
                     Toggle("Tick order steps automatically", isOn: $autoSteps)
                     Toggle("Say when an order is accepted or delivered", isOn: $audioCues)

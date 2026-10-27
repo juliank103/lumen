@@ -43,9 +43,14 @@ enum TimingStore {
     }
 
     /// The rules plus what was learned, as the reader's settings JSON.
-    static func settingsJSON(_ rules: Rules) -> String {
+    static func settingsJSON(_ standard: Rules) -> String {
         let timing = current
-        var extra = ""
+        var extra = "", rules = standard
+        // The weekday bar (Oct 27): today's bar in place of the rules, the rules themselves as "standard".
+        if let bar = SlowHours.dayBar(standard) {
+            rules.hourlyTargetCents = bar.hourlyCents; rules.centsPerMile = bar.centsPerMile
+            extra += ",\"standard\":{\"hourlyCents\":\(standard.hourlyTargetCents),\"centsPerMile\":\(standard.centsPerMile)}"
+        }
         let factors = timing.factors.filter { $0.value >= 0.5 && $0.value <= 3 }
         if !factors.isEmpty, let data = try? JSONEncoder().encode(factors), let text = String(data: data, encoding: .utf8) {
             extra += ",\"timeFactors\":" + text

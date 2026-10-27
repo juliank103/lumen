@@ -22,22 +22,50 @@ enum SlowHours {
 
     private static let lock = NSLock()
     private static var minutesWithoutGood = 0
+    private static var standardOffers: [(id: String, at: Date)] = []
 
     /// The reader: minutes of reading since the last offer that met the rules.
     static func noteLive(minutesWithoutGood minutes: Int) {
         lock.lock(); minutesWithoutGood = max(0, minutes); lock.unlock()
     }
 
-    /// The bar for now, as the settings JSON value ("slowBar"), or nil when it isn't a slow hour.
+    /// The reader: an offer that met the full rules (counted once per offer).
+    static func noteStandardOffer(id: String, at date: Date = Date()) {
+        lock.lock(); defer { lock.unlock() }
+        standardOffers.removeAll { date.timeIntervalSince($0.at) > 1800 }
+        if !standardOffers.contains(where: { $0.id == id }) { standardOffers.append((id, date)) }
+    }
+
+    /// Busy (user, Oct 27: the ladder lost $6/hr on a strong Saturday): 2 offers that met the full rules in the last
+    /// 30 minutes. While busy the reader uses the full rules — no weekday bar, no slow-hour ladder.
+    static func isBusy(now: Date = Date()) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return standardOffers.filter { now.timeIntervalSince($0.at) <= 1800 }.count >= 2
+    }
+
+    /// Today's bar when it is lower than the rules: the weekday bar on its days, unless busy.
+    static func dayBar(_ rules: Rules, now: Date = Date()) -> (hourlyCents: Int, centsPerMile: Int)? {
+        let weekday = Calendar.current.component(.weekday, from: now) - 1
+        guard rules.weekdaySet.contains(weekday), rules.weekdayHourly < rules.hourlyTargetCents || rules.weekdayPerMile < rules.centsPerMile,
+              !isBusy(now: now) else { return nil }
+        return (min(rules.weekdayHourly, rules.hourlyTargetCents), min(rules.weekdayPerMile, rules.centsPerMile))
+    }
+
+    /// The bar for now, as the settings JSON value ("slowBar"), or nil when it isn't a slow hour. The steps go down from
+    /// today's bar: on a weekday-bar day the first step is $21.
     static func barJSON(now: Date = Date()) -> String? {
+        guard !isBusy(now: now) else { return nil }
         lock.lock(); let live = minutesWithoutGood; lock.unlock()
         let slot = slots()[slotKey(now)] ?? 0
         let step = live >= 60 ? 2 : live >= 30 ? 1 : 0
         let tier = min(3, slot + step)
         guard tier > 0 else { return nil }
-        let bar = bars[tier - 1]
-        let target = RulesStore.current.hourlyTargetCents / 100
-        let reason = step > 0 ? "no $\(target) offer in \(live) min" : "usually slow at this time"
+        let rules = RulesStore.current
+        let base = dayBar(rules, now: now)?.hourlyCents ?? rules.hourlyTargetCents
+        let below = bars.filter { $0.hourlyCents < base }
+        guard !below.isEmpty else { return nil }
+        let bar = below[min(tier, below.count) - 1]
+        let reason = step > 0 ? "no \(Rules.dollars(rules.hourlyTargetCents)) offer in \(live) min" : "usually slow at this time"
         return "{\"hourlyCents\":\(bar.hourlyCents),\"centsPerMile\":\(bar.centsPerMile),\"reason\":\"\(reason)\"}"
     }
 }

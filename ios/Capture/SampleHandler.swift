@@ -464,8 +464,12 @@ final class SampleHandler: RPBroadcastSampleHandler {
     private func store(_ offer: LiveOffer, refined: [String: Any], update: Bool, timings: [String: Int], usedAccurate: Bool,
                        positionKnown: Bool, preliminary: (word: String, notice: String), times: (seen: Date, first: Date, refined: Date)) {
         try? LiveOfferStorage.append(offer)
-        // An offer that met the rules (not a slow-hour accept) resets the slow-hour clock.
-        if offer.notice?.hasSuffix("· Accept") == true { lastGoodOfferAt = Date() }
+        // An offer that met the full rules (not a weekday-bar or slow-hour accept) resets the slow-hour clock and counts
+        // toward busy.
+        if refined["meetsStandard"] as? Bool == true {
+            lastGoodOfferAt = Date()
+            SlowHours.noteStandardOffer(id: offer.offerId ?? offer.id)
+        }
         var userInfo: [AnyHashable: Any] = [:]
         if let value = LiveOfferStorage.notificationValue(offer) { userInfo[LiveOfferStorage.notificationKey] = value }
         let notice = offer.notice ?? offer.detail

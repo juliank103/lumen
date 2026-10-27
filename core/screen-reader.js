@@ -670,11 +670,15 @@
     return out;
   }
 
+  /* $25, $23.50, $0.95. */
+  function dollars(cents) { return '$' + (cents / 100).toFixed(2).replace(/\.00$/, ''); }
+
   /* The one reason that decided the verdict, short enough for a notification's second line (user, Oct 22: Michael's
    * Grill showed "$10.20/mi · Accept" with nothing saying a drive-back credit did it). Null when there's nothing to say. */
   function whyLine(out, suspect, s) {
     if (suspect) return "Numbers don't fit · check the app";
     if (out.slowHour) return 'Slow hour · ' + out.slowHour.band + (out.slowHour.reason ? ' · ' + out.slowHour.reason : '');
+    if (out.dayBar) return 'Weekday bar · ' + dollars(out.dayBar.hourlyCents) + '/hr · ' + dollars(out.dayBar.centsPerMile) + '/mi';
     const notice = out.notice || '', pay = out.payCents, outbound = out.outboundMilliMiles, ret = out.returnMilliMiles;
     if (pay === null || pay === undefined || outbound === null || outbound === undefined) return null;
     const target = '$' + (s.centsPerMile / 100).toFixed(2).replace(/\.00$/, '') + '/mi';
@@ -737,7 +741,7 @@
           pay * 60 < s.hourlyTargetCents * summary.appMinutes) {
         out.hourlyCents = Math.round(pay * 60 / summary.appMinutes);
         out.notice = '≤$' + Math.floor(out.hourlyCents / 100) + '/hr · Decline';
-        out.detail = 'Below $' + (s.hourlyTargetCents / 100).toFixed(0) + '/hr on the order alone (' + summary.appMinutes + ' min), before the drive back';
+        out.detail = 'Below ' + dollars(s.hourlyTargetCents) + '/hr on the order alone (' + summary.appMinutes + ' min), before the drive back';
         out.tone = 'bad';
         return out;
       }
@@ -799,6 +803,12 @@
     // Slow hours (user, Oct 26: "there are some shifts … where I need to lower my expectations"): when good offers have
     // been rare here (history at this day and meal time, or none for a while tonight), an offer that misses the rules but
     // clears the lower bar is a labeled "Accept (slow hour)" — the rules stay the standard. Needs a known $/hr.
+    // The day's bar (Oct 27): an Accept that misses the full rules (`standard`) says so; meetsStandard is what the
+    // reader counts for slow and busy hours.
+    const std = s.standard || { hourlyCents: s.hourlyTargetCents, centsPerMile: s.centsPerMile };
+    out.meetsStandard = verdictWord === 'Accept' && (std.hourlyCents === null || (hourly !== null && hourly >= std.hourlyCents))
+      && pay * 1000 >= std.centsPerMile * (effective + (route.kind === 'map' ? out.uncertaintyMilliMiles : 0));
+    if (s.standard && verdictWord === 'Accept' && !out.meetsStandard) out.dayBar = { hourlyCents: s.hourlyTargetCents, centsPerMile: s.centsPerMile };
     const bar = s.slowBar;
     if (verdictWord !== 'Accept' && verdictWord !== 'Accept (time unknown)' && bar && hourly !== null && !summary.suspect
         && hourly >= bar.hourlyCents && pay * 1000 >= bar.centsPerMile * effective) {
@@ -809,8 +819,8 @@
     const slack = Math.floor(pay * 1000 / s.centsPerMile) - effective;
     // A pass against the longest possible return has more real slack than shown.
     out.tone = verdictWord === 'Decline' ? 'bad' : verdictWord === 'Accept' && (slack >= 2000 || route.kind === 'worst_case') ? 'good' : 'tight';
-    if (out.slowHour) out.tone = 'tight';
-    const why = hourlyOk === false && !surelyNot ? ' — below $' + (s.hourlyTargetCents / 100).toFixed(0) + '/hr' : '';
+    if (out.slowHour || out.dayBar) out.tone = 'tight';
+    const why = hourlyOk === false && !surelyNot ? ' — below ' + dollars(s.hourlyTargetCents) + '/hr' : '';
     const kindText = route.kind === 'map' ? ' (map estimate ±' + miles1(valid(route.uncertaintyMilliMiles) ? route.uncertaintyMilliMiles : 1000) + ' mi)'
       : route.kind === 'dropoff_town' ? ' (from town center)' : route.kind === 'worst_case' ? ' (longest possible)' : '';
     if (verdictWord === null) {

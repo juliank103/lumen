@@ -15,6 +15,9 @@ enum SettingsSignal {
     private static let factors = Array(stride(from: 50, through: 300, by: 5))
     private static let perMile = Array(stride(from: 25, through: 500, by: 5))
     private static let hourly = Array(stride(from: 500, through: 10_000, by: 100))
+    /// The weekday bar: $/hr in cents (step 50, for $23.50), $/mi like cpm, days as a bit mask (bit 0 = Sunday).
+    private static let weekdayHourly = Array(stride(from: 1000, through: 6000, by: 50))
+    private static let dayMasks = Array(0...127)
 
     private static func post(_ name: String) {
         CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFNotificationName(name as CFString), nil, nil, true)
@@ -26,6 +29,9 @@ enum SettingsSignal {
     static func send(rules: Rules, timing: TimingStore.Timing) {
         post(prefix + "cpm.\(snap(rules.centsPerMile, perMile))")
         post(prefix + "hourly.\(snap(rules.hourlyTargetCents, hourly))")
+        post(prefix + "wdhourly.\(snap(rules.weekdayHourly, weekdayHourly))")
+        post(prefix + "wdcpm.\(snap(rules.weekdayPerMile, perMile))")
+        post(prefix + "wddays.\(rules.weekdayMask)")
         post(prefix + "share.\(snap(Int((timing.returnShare * 100).rounded()), shares))")
         for app in apps {
             let factor = timing.factors[app].map { snap(Int(($0 * 100).rounded()), factors) } ?? 100
@@ -41,6 +47,7 @@ enum SettingsSignal {
     /// The reader: listen for every possible value (once per broadcast).
     static func listen() {
         var names = perMile.map { "cpm.\($0)" } + hourly.map { "hourly.\($0)" } + shares.map { "share.\($0)" }
+        names += weekdayHourly.map { "wdhourly.\($0)" } + perMile.map { "wdcpm.\($0)" } + dayMasks.map { "wddays.\($0)" }
         for app in apps { names += factors.map { "factor.\(app).\($0)" } }
         for day in 0..<7 { for part in ["lunch", "dinner", "other"] { names += (0...3).map { "slot.\(day).\(part).\($0)" } } }
         for name in names {
@@ -57,9 +64,15 @@ enum SettingsSignal {
         guard let last = parts.last, let value = Int(last) else { return }
         let defaults = UserDefaults.standard, decoder = JSONDecoder(), encoder = JSONEncoder()
         switch parts.first {
-        case "cpm", "hourly":
+        case "cpm", "hourly", "wdhourly", "wdcpm", "wddays":
             var rules = defaults.data(forKey: "rules").flatMap { try? decoder.decode(Rules.self, from: $0) } ?? .defaults
-            if parts.first == "cpm" { rules.centsPerMile = value } else { rules.hourlyTargetCents = value }
+            switch parts.first {
+            case "cpm": rules.centsPerMile = value
+            case "hourly": rules.hourlyTargetCents = value
+            case "wdhourly": rules.weekdayHourlyCents = value
+            case "wdcpm": rules.weekdayCentsPerMile = value
+            default: rules.weekdayDays = (0..<7).filter { value & (1 << $0) != 0 }
+            }
             defaults.set(try? encoder.encode(rules), forKey: "rules")
         case "slot" where parts.count == 4:
             var slots = SlowHours.slots()
