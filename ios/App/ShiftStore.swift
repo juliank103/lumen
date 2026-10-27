@@ -96,7 +96,14 @@ final class ShiftStore: ObservableObject {
             }
             return
         }
-        current = Shift(id: "shift-\(Int(now.timeIntervalSince1970))", startedAt: now, endedAt: nil, pausedAt: nil, meters: [:],
+        // An order accepted since the last shift ended (up to 2 hours back) starts the shift with it (Oct 27: a
+        // Five Guys order accepted at 11:15, between a shift that ended 11:10 and one that started 11:19, counted in neither).
+        let lastEnd = history.last?.endedAt ?? .distantPast
+        let store = TripStore.shared
+        let earlier = (store.history.suffix(20) + [store.active].compactMap { $0 }).flatMap(\.orders).map(\.acceptedAt)
+            .filter { $0 > lastEnd && $0 < now && now.timeIntervalSince($0) <= 7200 }.min()
+        let start = earlier ?? now
+        current = Shift(id: "shift-\(Int(start.timeIntervalSince1970))", startedAt: start, endedAt: nil, pausedAt: nil, meters: [:],
                         goalCents: defaultGoalCents, finalMetrics: nil)
         drivingBack = false
         tracker.start()
