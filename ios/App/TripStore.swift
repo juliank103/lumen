@@ -532,7 +532,13 @@ final class TripStore: ObservableObject {
                 return step
             }
             if !stepEvents.isEmpty { OfferJournal.appendEvents(stepEvents) }
-            if let ended, order.ended != nil {
+            if ended == "active", order.ended != nil {
+                // Still on it (user, Oct 27: JimmyJohn's was marked delivered from the last customer's messages while at the
+                // store): back in progress, without its drop-off steps.
+                order.ended = nil
+                order.endedAt = nil
+                trip.steps.removeAll { $0.offerId == offerId && ($0.kind == .arrivedDropoff || $0.kind == .delivered) }
+            } else if let ended, order.ended != nil {
                 order.ended = ended
                 order.endedAt = min(now, max(endedAt ?? order.acceptedAt, order.acceptedAt.addingTimeInterval(60)))
             }
@@ -573,11 +579,35 @@ final class TripStore: ObservableObject {
             commit(before: before, historyCount: historyCount, events: events)
         } else if let index = history.lastIndex(where: { $0.orders.contains { $0.offerId == offerId } }) {
             var trip = history[index]
-            if apply(&trip) { history[index] = trip }
+            guard apply(&trip) else { return }
+            if ended == "active" { reopen(offerId, from: trip, at: index, now) } else { history[index] = trip }
             ShiftStore.shared.recomputeFinals(near: trip.startedAt)
             save()
         }
         ShiftStore.shared.refreshMetrics()
+    }
+
+    /// A finished trip's order back in progress: the trip becomes the current one again, or, with another trip running,
+    /// the order joins that trip.
+    private func reopen(_ offerId: String, from trip: Trip, at index: Int, _ now: Date) {
+        if var current = active {
+            current.orders += trip.orders.filter { $0.offerId == offerId }
+            current.steps = (current.steps + trip.steps.filter { $0.offerId == offerId }).sorted { $0.at < $1.at }
+            current.startedAt = min(current.startedAt, trip.startedAt)
+            active = current
+            var rest = trip
+            rest.orders.removeAll { $0.offerId == offerId }
+            rest.steps.removeAll { $0.offerId == offerId }
+            if rest.orders.isEmpty { history.remove(at: index) } else { history[index] = rest }
+        } else {
+            var trip = trip
+            trip.endedAt = nil
+            history.remove(at: index)
+            active = trip
+            ShiftStore.shared.tripReopened()
+        }
+        OfferJournal.appendEvents([event("reopened", offerId, now, active?.id ?? trip.id)])
+        TripNotifier.update(active)
     }
 
     /// Records the real drive back for an order (ReturnCheck), active or finished. Not an undoable step.

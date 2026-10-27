@@ -48,7 +48,8 @@ struct OrderEditor: View {
     /// The stored outcome ("cancelled by customer"), kept when the picker isn't changed.
     @State private var originalOutcome: String?
 
-    private static let outcomes = [("completed", "Completed"), ("unassigned", "Unassigned"), ("cancelled", "Cancelled"), ("not finished", "Didn't finish")]
+    private static let outcomes = [("completed", "Completed"), ("active", "Still on it"), ("unassigned", "Unassigned"),
+                                   ("cancelled", "Cancelled"), ("not finished", "Didn't finish")]
 
     var body: some View {
         NavigationStack {
@@ -160,11 +161,13 @@ struct OrderEditor: View {
                 }
                 Section {
                     DatePicker("Accepted", selection: $acceptedAt, in: ...Date())
-                    if finished {
+                    if finished && outcome != "active" {
                         DatePicker(outcome == "completed" ? "Delivered" : "Ended", selection: $endedAt, in: acceptedAt...max(acceptedAt, Date()))
                     }
                 } footer: {
-                    if finished {
+                    if outcome == "active" {
+                        Text("Saving puts the order back on Home as the one you're doing, without its drop-off steps.")
+                    } else if finished {
                         Text("Took \(Int((max(60, endedAt.timeIntervalSince(acceptedAt)) / 60).rounded())) min.")
                     }
                 }

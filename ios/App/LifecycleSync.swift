@@ -57,9 +57,13 @@ final class LifecycleSync {
             fillPickup(p, now)
         case "at_customer":
             if !hasOpenOrder(p) { promptMissedOrder(p, now, otherAppBusy: otherAppBusy); return }
+            if atStore(p) { return }
             fillPickup(p, now)
             step(.arrivedDropoff, p, now, inferred: false)
         case "delivered":
+            // Never while you're at a store you haven't left (user, Oct 27: the last customer's messages said
+            // "delivered" at JimmyJohn's and completed the new order). Leaving the store comes first.
+            if atStore(p) { return }
             fillPickup(p, now)
             step(.arrivedDropoff, p, now, inferred: true)
             step(.delivered, p, now, inferred: false)
@@ -175,6 +179,18 @@ final class LifecycleSync {
               let order = trip.orders.first(where: { $0.platform == platform && $0.ended == nil }),
               !order.stores.indices.contains(where: { trip.has(.leftStore, order.offerId, $0) }) else { return }
         if step(.arrivedStore, platform, now, inferred: true) { step(.leftStore, platform, now, inferred: true) }
+    }
+
+    /// The app's open order hasn't been picked up: you're at one of its stores and haven't left, or it's under 10 minutes
+    /// old with no store reached yet. A customer-side screen then belongs to the order before it.
+    private func atStore(_ platform: String, _ now: Date = Date()) -> Bool {
+        guard let trip = TripStore.shared.active else { return false }
+        return trip.orders.contains { order in
+            guard order.platform == platform, order.ended == nil else { return false }
+            let reached = order.stores.indices.filter { trip.has(.arrivedStore, order.offerId, $0) || trip.has(.leftStore, order.offerId, $0) }
+            if reached.isEmpty { return now.timeIntervalSince(order.acceptedAt) < 600 }
+            return reached.contains { !trip.has(.leftStore, order.offerId, $0) }
+        }
     }
 
     private func hasOpenOrder(_ platform: String) -> Bool {

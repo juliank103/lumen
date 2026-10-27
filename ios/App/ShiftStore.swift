@@ -148,6 +148,12 @@ final class ShiftStore: ObservableObject {
         if let paused = current?.pausedAt, now.timeIntervalSince(paused) > Self.resumeWindow { end(at: paused) }
     }
 
+    /// A finished order went back in progress: no drive back yet.
+    func tripReopened() {
+        drivingBack = false
+        closestToHome = nil
+    }
+
     /// The last order of a trip ended: miles from here are the drive back until the return destination is reached.
     func tripEnded() {
         drivingBack = true
