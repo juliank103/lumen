@@ -11,7 +11,10 @@ struct ContentView: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
+                // Pull down to refresh on every screen that scrolls (user, Oct 27: "why not every screen"); Earnings adds
+                // its week on top.
                 current
+                    .refreshable { await model.pullRefresh() }
                     .disabled(menu.isOpen)
                 if menu.isOpen {
                     Color.black.opacity(0.45).ignoresSafeArea()
@@ -71,7 +74,7 @@ struct DashTab: View {
     var body: some View {
         NavigationStack {
             // Redesign (user, Oct 21): one state at a time — on an order, an offer in, or waiting.
-            RefreshingScroll {
+            ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     SetupHealthCard(issues: model.setupIssues)
                     TimelineView(.periodic(from: .now, by: 5)) { context in
@@ -304,16 +307,5 @@ struct OfferHero: View {
                 if abs(value.translation.width) > 110, abs(value.translation.width) > abs(value.translation.height) { onDismiss?() }
                 withAnimation(.spring) { dragX = 0 }
             })
-    }
-}
-
-/// A scroll view that refreshes everything when pulled down.
-struct RefreshingScroll<Content: View>: View {
-    @EnvironmentObject private var model: AppModel
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        ScrollView { content }
-            .refreshable { await model.pullRefresh() }
     }
 }

@@ -65,7 +65,6 @@ struct OffersTab: View {
                     .listStyle(.plain)
                 }
             }
-            .refreshable { await model.pullRefresh() }
             .navigationTitle("Offers")
             .toolbar { ToolbarItem(placement: .topBarTrailing) { AddButton() } }
             .menuButton()

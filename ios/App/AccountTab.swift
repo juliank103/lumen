@@ -273,7 +273,6 @@ struct DiagnosticsView: View {
                 row("Build", (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String) ?? "?")
             }
         }
-        .refreshable { await model.pullRefresh() }
         .navigationTitle("Advanced & diagnostics")
         .confirmationDialog("Remove demo data?", isPresented: $confirmRemoveDemo) {
             Button("Remove demo data", role: .destructive) { model.removeDemoData() }
