@@ -250,6 +250,7 @@ struct ShiftEditor: View {
     @State private var start = Date()
     @State private var end = Date()
     @State private var confirmDelete = false
+    @State private var merging: Shift?
     /// Running shift: it already ended at `end` (user, Oct 15: "edit the time a shift ended").
     @State private var endRunning = false
     @State private var orderMilesText = ""
@@ -264,6 +265,11 @@ struct ShiftEditor: View {
     }
 
     private func close() { if let onDone { onDone() } else { dismiss() } }
+
+    private func span(_ shift: Shift) -> String {
+        shift.startedAt.formatted(date: .omitted, time: .shortened) + "–"
+            + (shift.endedAt.map { $0.formatted(date: .omitted, time: .shortened) } ?? "now")
+    }
 
     private func miles(_ text: String) -> Double {
         max(0, Double(text.replacingOccurrences(of: ",", with: ".").trimmingCharacters(in: .whitespaces)) ?? 0)
@@ -299,6 +305,21 @@ struct ShiftEditor: View {
                         Text("Drive-back and repositioning miles.")
                     }
                 }
+                if let shift {
+                    let near = shifts.neighbors(of: shift.id)
+                    if near.previous != nil || near.next != nil {
+                        Section {
+                            if let previous = near.previous {
+                                Button("Merge with previous shift (" + span(previous) + ")") { merging = previous }
+                            }
+                            if let next = near.next {
+                                Button("Merge with next shift (" + span(next) + ")") { merging = next }
+                            }
+                        } footer: {
+                            Text("One shift from the first start to the last end. The time between counts as online, and orders in it count.")
+                        }
+                    }
+                }
                 if shift != nil && !isRunning {
                     Section {
                         Button("Delete shift", role: .destructive) { confirmDelete = true }
@@ -325,6 +346,21 @@ struct ShiftEditor: View {
                         close()
                     }
                     .disabled((!isRunning || endRunning) && end <= start)
+                }
+            }
+            .confirmationDialog("Merge these shifts?", isPresented: Binding(get: { merging != nil }, set: { if !$0 { merging = nil } }),
+                                titleVisibility: .visible) {
+                Button("Merge") {
+                    if let shift, let other = merging { shifts.mergeShifts(shift.id, other.id) }
+                    merging = nil
+                    close()
+                }
+            } message: {
+                if let shift, let other = merging {
+                    let first = min(shift.startedAt, other.startedAt)
+                    let last = [shift, other].contains { $0.endedAt == nil } ? nil : max(shift.endedAt ?? .now, other.endedAt ?? .now)
+                    Text("One shift: " + first.formatted(date: .omitted, time: .shortened) + " – "
+                         + (last.map { $0.formatted(date: .omitted, time: .shortened) } ?? "now") + ".")
                 }
             }
             .confirmationDialog("Delete this shift?", isPresented: $confirmDelete) {

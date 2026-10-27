@@ -96,14 +96,7 @@ final class ShiftStore: ObservableObject {
             }
             return
         }
-        // An order accepted since the last shift ended (up to 2 hours back) starts the shift with it (Oct 27: a
-        // Five Guys order accepted at 11:15, between a shift that ended 11:10 and one that started 11:19, counted in neither).
-        let lastEnd = history.last?.endedAt ?? .distantPast
-        let store = TripStore.shared
-        let earlier = (store.history.suffix(20) + [store.active].compactMap { $0 }).flatMap(\.orders).map(\.acceptedAt)
-            .filter { $0 > lastEnd && $0 < now && now.timeIntervalSince($0) <= 7200 }.min()
-        let start = earlier ?? now
-        current = Shift(id: "shift-\(Int(start.timeIntervalSince1970))", startedAt: start, endedAt: nil, pausedAt: nil, meters: [:],
+        current = Shift(id: "shift-\(Int(now.timeIntervalSince1970))", startedAt: now, endedAt: nil, pausedAt: nil, meters: [:],
                         goalCents: defaultGoalCents, finalMetrics: nil)
         drivingBack = false
         tracker.start()
@@ -293,6 +286,38 @@ final class ShiftStore: ObservableObject {
             shift.finalMetrics = metricsJSON(for: shift, now: shift.endedAt ?? now)
             history[index] = shift
             history.sort { $0.startedAt < $1.startedAt }
+        }
+        save(force: true)
+        refreshMetrics()
+    }
+
+    /// The shifts just before and after one, by start time (for Merge).
+    func neighbors(of id: String) -> (previous: Shift?, next: Shift?) {
+        let all = (history + [current].compactMap { $0 }).sorted { $0.startedAt < $1.startedAt }
+        guard let index = all.firstIndex(where: { $0.id == id }) else { return (nil, nil) }
+        return (index > 0 ? all[index - 1] : nil, index + 1 < all.count ? all[index + 1] : nil)
+    }
+
+    /// Two shifts become one, from the first's start to the second's end, the time between them online (user, Oct 27:
+    /// a short shift 11:02–11:10, an $8 order accepted at 11:15, the next shift from 11:19 — "merge that first micro
+    /// shift … with this shift"). Miles add up; the later shift keeps running if it is the current one.
+    func mergeShifts(_ a: String, _ b: String) {
+        let all = history + [current].compactMap { $0 }
+        guard a != b, let one = all.first(where: { $0.id == a }), let two = all.first(where: { $0.id == b }) else { return }
+        let (early, late) = one.startedAt <= two.startedAt ? (one, two) : (two, one)
+        var merged = late
+        merged.startedAt = early.startedAt
+        merged.meters = early.meters.merging(late.meters, uniquingKeysWith: +)
+        if early.buckets != nil || late.buckets != nil {
+            merged.buckets = (early.buckets ?? [:]).merging(late.buckets ?? [:]) { $0.merging($1, uniquingKeysWith: +) }
+        }
+        merged.goalCents = late.goalCents ?? early.goalCents
+        history.removeAll { $0.id == early.id }
+        if current?.id == late.id {
+            current = merged
+        } else if let index = history.firstIndex(where: { $0.id == late.id }) {
+            merged.finalMetrics = metricsJSON(for: merged, now: merged.endedAt ?? Date())
+            history[index] = merged
         }
         save(force: true)
         refreshMetrics()
