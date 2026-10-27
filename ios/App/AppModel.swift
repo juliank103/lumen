@@ -94,6 +94,13 @@ final class AppModel: ObservableObject {
         return "Reading offers"
     }
 
+    /// Pull down to refresh (user, Oct 27: "see updates faster"): offers, the shift's totals, and the reader's health now.
+    func pullRefresh() async {
+        readerHealthAt = .distantPast
+        await refresh()
+        ShiftStore.shared.refreshMetrics()
+    }
+
     func refresh() async {
         screenCaptured = UIScreen.main.isCaptured
         do { probe = try ProbeStorage.read(); storageAvailable = true }

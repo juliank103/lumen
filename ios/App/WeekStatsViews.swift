@@ -119,6 +119,11 @@ struct StatsTab: View {
             } message: {
                 Text("It also ends by itself 30 minutes after offer reading stops with no trip running.")
             }
+            .refreshable {
+                await model.pullRefresh()
+                week.offers = model.offers
+                week.compute()
+            }
             .onAppear {
                 week.offers = model.offers
                 week.compute()
