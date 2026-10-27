@@ -793,8 +793,19 @@
     const minutes = trip.minutes !== null && back !== null ? trip.minutes + back : null;
     const hourly = minutes !== null && minutes >= 5 ? pay * 60 / minutes : null;
     if (hourly !== null) out.hourlyCents = Math.round(hourly);
-    const hourlyOk = s.hourlyTargetCents === null ? true : hourly === null ? null : hourly >= s.hourlyTargetCents;
-    const hourText = hourly !== null ? ' · ' + (trip.estimated ? '~' : '') + '$' + Math.floor(hourly / 100) + '/hr' : '';
+    let hourlyOk = s.hourlyTargetCents === null ? true : hourly === null ? null : hourly >= s.hourlyTargetCents;
+    // The card's own time with no drive back at all is the most the offer can pay per hour: too slow there is too slow
+    // whatever the return (user, Oct 27: $10.39 for 56 min, ~$11/hr, read "Accept (time unknown)" because the return
+    // was a longest-possible bound with no minutes).
+    const ceiling = !trip.estimated && trip.minutes !== null && trip.minutes >= 5 ? pay * 60 / trip.minutes : null;
+    const tooSlow = s.hourlyTargetCents !== null && ceiling !== null && ceiling < s.hourlyTargetCents;
+    // A longest-possible return gives the least $/hr: passing proves it, failing proves nothing.
+    if (tooSlow) hourlyOk = false;
+    else if (route.kind === 'worst_case' && hourlyOk === false) hourlyOk = null;
+    if (tooSlow && hourly === null) out.hourlyCents = Math.round(ceiling);
+    const hourBound = tooSlow && (hourly === null || route.kind === 'worst_case') ? '≤' : route.kind === 'worst_case' && hourlyOk ? '≥' : '';
+    const shown = hourBound === '≤' ? ceiling : hourBound === '≥' ? hourly : route.kind === 'worst_case' ? null : hourly;
+    const hourText = shown !== null ? ' · ' + hourBound + (trip.estimated && !hourBound ? '~' : '') + '$' + Math.floor(shown / 100) + '/hr' : '';
     let verdictWord;
     if (surelyNot || hourlyOk === false) verdictWord = 'Decline';
     else if (surely) verdictWord = hourlyOk === null ? 'Accept (time unknown)' : 'Accept';

@@ -251,7 +251,7 @@ final class ReturnRouter: NSObject, CLLocationManagerDelegate {
         guard let pickup else { return completion(nil) }
         legToHome(from: pickup, home: home) { leg, streetLevel in
             guard let leg, streetLevel else { return completion(nil) }
-            completion(Route(kind: "worst_case", milliMiles: Self.milliMiles(leg.meters) + outbound))
+            completion(Self.worstCase(leg, outbound: outbound))
         }
     }
 
@@ -259,8 +259,18 @@ final class ReturnRouter: NSObject, CLLocationManagerDelegate {
     private func boundFromHere(home: MKMapItem, outbound: Int, completion: @escaping (Route?) -> Void) {
         guard let here = currentPosition(mapCurrent: nil) else { return completion(nil) }
         route(from: MKMapItem(placemark: MKPlacemark(coordinate: here.coordinate)), to: home) { leg in
-            completion(leg.map { Route(kind: "worst_case", milliMiles: Self.milliMiles($0.meters) + outbound) })
+            completion(leg.map { Self.worstCase($0, outbound: outbound) })
         }
+    }
+
+    /// The longest the return can be: from a point on the route back, plus the trip's own miles at that drive's speed
+    /// (18–45 mph). Its minutes let $/hr be bounded too (user, Oct 27: a DoorDash card plainly showing 56 min read
+    /// "Accept (time unknown)" because this return had miles but no minutes).
+    static func worstCase(_ leg: Leg, outbound: Int) -> Route {
+        let miles = leg.meters / 1609.344, hours = leg.seconds / 3600
+        let mph = min(45, max(18, hours > 0 ? miles / hours : 25))
+        return Route(kind: "worst_case", milliMiles: milliMiles(leg.meters) + outbound,
+                     returnMinutes: minutes(leg.seconds) + Int((Double(outbound) / 1000 / mph * 60).rounded()))
     }
 
     // MARK: Return from the offer map
