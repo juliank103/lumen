@@ -13,7 +13,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
 
-DATA = Path(os.environ.get('MELLODY_PINS', Path.home() / '__APP_NAME__ pin training'))
+DATA = Path(os.environ.get('PIN_TRAINING_DIR', Path.home() / '__APP_NAME__ pin training'))
 KINDS = ['store', 'customer', 'you']
 IN_W, IN_H, STRIDE = 320, 384, 4
 OUT_W, OUT_H = IN_W // STRIDE, IN_H // STRIDE
