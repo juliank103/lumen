@@ -23,7 +23,7 @@
     uber_eats: [/Guaranteed \(incl\. tip\)/i, /\bmin\s*\(\s*[\d.]+\s*mi\)\s*total/i, /Boost\+/i, /^(\S{1,2}\s+)?(Delivery|Package)(\s*\(\d+\))?$/i, /^Exclusive$/i, /expected tip/i, /Customer verification/i,
       // Early-look "Match" cards and "Add a delivery" during an order (Oct 18 screenshots).
       /Matching may take longer/i, /^Add a delivery$/i, /Est\.? ?delivery \d{1,2}:\d{2}/i,
-      /^(\d{1,2}\s*hr?\s*)?\d{1,3}\s*min\s*[•·∙*]\s*[\d.]+\s*mi$/i, /^Match$/i],
+      /^(\d{1,2}\s*hr?\s*)?\d{1,3}\s*min\s*[^\w\s$+]\s*[\d.]+\s*mi$/i, /^Match$/i],
     // "Pick up 3 orders" / "Multiple dropoffs (3 stops)": DoorDash's multi-order card (food bank retail pickup, Oct 15
     // 2026), whose top ("Decline") is outside the part of the screen that is read.
     doordash: [/incl\. tips/i, /^Deliver by\b/i, /Customer dropoff/i, /^((Retail|Grocery|Shop|Store)\s+)?Pickup$/i, /\bstops?\s*\(\s*[\d.]+\s*mi\)/i, /^Decline$/i,
@@ -262,9 +262,10 @@
   function readUber(lines, pay, f, problems) {
     // "25 min (7.1 mi) total", also with a bracket misread or lost ("{7.1 mi", "(7.1 mi total", "t0tal").
     // "Add a delivery" during an order adds "+22 min (+ 6.3 mi) total" (Oct 18 screenshots).
-    // Since Oct 28 the row is "34 min • 13.0 mi" (no bracket, no "total"): that counts when it's the whole line.
-    const TOTAL = /(\d{1,3})\s*min\s*(?:([({[])|[^\w\s.$+]{1,2})?\s*\+?\s*(\d{1,3}(?:\.\d{1,2})?)\s*mi\b\s*[)}\]]?\s*(t[o0]ta[l1I])?/i;
-    const ROW = /^(?:(?:\d{1,2}|[Il|])\s*h(?:r|our)?s?\s*)?\d{1,3}\s*min\s*[^\w\s.$]{0,2}\s*\+?\s*\d{1,3}(?:\.\d{1,2})?\s*mi$/i;
+    // Since Oct 28 the row is "34 min • 13.0 mi" (no bracket, no "total"): that counts when it's the whole line. The
+    // phone reads the "•" as a period ("28 min. 2.6 mi", build 114: still only 1 of ~12 Uber offers read).
+    const TOTAL = /(\d{1,3})\s*min\s*(?:([({[])|[^\w\s$+]{1,2})?\s*\+?\s*(\d{1,3}(?:\.\d{1,2})?)\s*mi\b\s*[)}\]]?\s*(t[o0]ta[l1I])?/i;
+    const ROW = /^(?:(?:\d{1,2}|[Il|])\s*h(?:r|our)?s?\s*)?\d{1,3}\s*min\s*[^\w\s$]{0,2}\s*\+?\s*\d{1,3}(?:\.\d{1,2})?\s*mi$/i;
     const isTotal = text => { const m = TOTAL.exec(text); return m && (m[2] || m[4] || ROW.test(text)) ? m : null; };
     // The new card puts "Guaranteed (incl. tip)" (and on early looks "Est. delivery …") between the row and the store.
     // Nor a map label at the card's right edge ("ie" beside a stacked card).
