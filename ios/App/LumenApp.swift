@@ -27,6 +27,7 @@ struct LumenApp: App {
     init() {
         UNUserNotificationCenter.current().delegate = presenter
         NotificationActions.register()
+        _ = ReaderLog.shared // Watching calls from launch, for the reader log.
     }
     var body: some Scene { WindowGroup { ContentView() } }
 }

@@ -20,10 +20,23 @@ final class ReadingMonitor {
     /// Screen reading stopped without being stopped (20 s+): the Dynamic Island shows "Reader off".
     var stoppedUnexpectedly: Bool { alerted }
 
+    /// No frame for a minute while the screen is captured: logged once per stall.
+    private var stallLogged = false
+
     func check(now: Date = Date()) {
         if UIScreen.main.isCaptured {
-            if alerted { UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [Self.notificationId]) }
+            if alerted {
+                UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [Self.notificationId])
+                ReaderLog.shared.note("capture_back")
+            }
             seenCapturing = true; outageSince = nil; alerted = false
+            if let last = ReaderLog.shared.lastFrameAt {
+                if now.timeIntervalSince(last) <= 60 { stallLogged = false }
+                else if !stallLogged {
+                    stallLogged = true
+                    ReaderLog.shared.note("frames_stalled", "screen captured, " + ReaderLog.shared.frameAge(at: now))
+                }
+            }
             return
         }
         guard seenCapturing else { return } // Reading never ran this session (manual trips only): nothing to warn about.
@@ -32,6 +45,8 @@ final class ReadingMonitor {
         if let finishedAt, finishedAt >= since.addingTimeInterval(-15) { return } // Stopped on purpose.
         guard !alerted, now.timeIntervalSince(since) >= 20 else { return }
         alerted = true
+        // Ended by iOS, not by the reader (no "finished"): memory, a call, or the system (Oct 27 reader log).
+        ReaderLog.shared.note("capture_lost", "noticed 20 s after; " + ReaderLog.shared.frameAge(at: since))
         let content = UNMutableNotificationContent()
         content.title = "__APP_NAME__ stopped reading offers"
         content.body = "Offers won't get a verdict. Open __APP_NAME__ and tap the status at the top to start again."

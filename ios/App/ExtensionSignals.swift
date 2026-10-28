@@ -47,25 +47,36 @@ final class ExtensionSignals: ObservableObject {
         let now = Date()
         switch signal {
         case .selfTest: selfTestReceived = true
-        case .loaded: loadedAt = now
+        case .loaded:
+            loadedAt = now
+            MainActor.assumeIsolated { ReaderLog.shared.note("reader_loaded") }
         case .started:
             startedAt = now; finishedAt = nil; readerFailed = false
+            MainActor.assumeIsolated { ReaderLog.shared.note("reader_started") }
             // The reader just started: hand it the training switch (it may have missed the flip) and the settings —
             // rules and the learned drive-back share — as signals (Oct 27: the bridge never delivered them).
             TrainingCapture.republish()
             SettingsSignal.send(rules: RulesStore.current, timing: TimingStore.current)
             MainActor.assumeIsolated { ShiftStore.shared.readingStarted() }
-        case .frame: frames += 1; lastFrameAt = now
+        case .frame:
+            frames += 1; lastFrameAt = now
+            MainActor.assumeIsolated { ReaderLog.shared.frameRead(at: now) }
         case .offer:
             offers += 1
             NotificationCenter.default.post(name: Self.offerReceived, object: nil)
-        case .readerFailed: readerFailed = true
+        case .readerFailed:
+            readerFailed = true
+            MainActor.assumeIsolated { ReaderLog.shared.note("reader_failed") }
+        case .paused: MainActor.assumeIsolated { ReaderLog.shared.note("reader_paused", ReaderLog.shared.frameAge(at: now)) }
+        case .resumed: MainActor.assumeIsolated { ReaderLog.shared.note("reader_resumed") }
+        case .memoryHigh: MainActor.assumeIsolated { ReaderLog.shared.note("reader_memory_high", "over 38 MB of about 50") }
         case .stopReading, .trainingOn, .trainingOff: break   // Sent by the app itself.
         case .bridgeRead: bridgeReadAt = now
         case .aiProbe: aiProbeAt = now
         case .finished:
             finishedAt = now
             MainActor.assumeIsolated {
+                ReaderLog.shared.note("reader_finished", ReaderLog.shared.frameAge(at: now))
                 ReadingMonitor.shared.readingFinished()
                 ShiftStore.shared.readingStopped()
             }

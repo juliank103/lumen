@@ -8,7 +8,9 @@ enum Signal: String, CaseIterable {
     // `bridgeRead`: the reader got the app's settings through the bridge (no App Group, Oct 24).
     // `aiProbe`: the reader finished an Apple Intelligence test and saved the result to the bridge (Oct 24).
     // `trainingOn`/`trainingOff`: the app's "Save offer screens" switch, in case the bridge doesn't reach the reader.
-    case selfTest, loaded, started, frame, offer, readerFailed, finished, stopReading, bridgeRead, aiProbe, trainingOn, trainingOff
+    // `paused`/`resumed`: iOS paused the broadcast; `memoryHigh`: the reader is near its memory limit (Oct 27 reader log).
+    case selfTest, loaded, started, frame, offer, readerFailed, finished, stopReading, bridgeRead, aiProbe, trainingOn, trainingOff,
+         paused, resumed, memoryHigh
 
     var name: String { "com.juliank103.mellodycopilot.signal." + rawValue }
 

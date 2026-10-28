@@ -140,8 +140,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
         }
     }
 
-    override func broadcastPaused() { changeState("paused", active: false) }
-    override func broadcastResumed() { changeState("observing", active: true) }
+    override func broadcastPaused() { Signal.paused.post(); changeState("paused", active: false) }
+    override func broadcastResumed() { Signal.resumed.post(); changeState("observing", active: true) }
     override func broadcastFinished() {
         CFNotificationCenterRemoveEveryObserver(CFNotificationCenterGetDarwinNotifyCenter(), Unmanaged.passUnretained(self).toOpaque())
         Signal.finished.post()
@@ -193,10 +193,25 @@ final class SampleHandler: RPBroadcastSampleHandler {
                 self.status.failureCode = self.reader == nil ? "reader_unavailable" : nil
                 do { try self.handleOffer(lines, frame: input, capturedAt: now) }
                 catch { self.status.failureCode = "reader_failed" }
+                self.checkMemory(now)
                 // OCR strings go out of scope here; only offer fields reach storage.
                 self.publish()
             }
         }
+    }
+
+    /// Near the extension's memory limit (about 50 MB), iOS ends the broadcast without a word: say so first, at most once
+    /// a minute, so the app's reader log can tell a memory stop from others (Oct 27: reading stopped, more on calls).
+    private var lastMemoryWarning = Date.distantPast
+    private func checkMemory(_ now: Date) {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
+        }
+        guard result == KERN_SUCCESS, info.phys_footprint > 38 * 1024 * 1024, now.timeIntervalSince(lastMemoryWarning) > 60 else { return }
+        lastMemoryWarning = now
+        Signal.memoryHigh.post()
     }
 
     /// Cheap change detection on the card area; never stores the thumbnail beyond the last comparison.

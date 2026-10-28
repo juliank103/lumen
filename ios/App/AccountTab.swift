@@ -238,6 +238,7 @@ struct DiagnosticsView: View {
                 row("Offers today", "\(today.count) · \(count(.accept)) accept · \(count(.decline)) decline · \(count(.maybe)) maybe")
             }
             if let health = model.readerHealth { ReaderHealthSection(health: health) }
+            ReaderLogSection()
             Section("Notifications") {
                 row("Permission", model.notificationStatus)
                 row("Banners", model.bannerStatus)
@@ -388,3 +389,46 @@ struct AIProbeSection: View {
     }
 }
 
+
+/// The reader's last starts, stops and calls (Oct 27: "the reader unexplainably stopping"). The full log is in the export.
+struct ReaderLogSection: View {
+    @ObservedObject private var log = ReaderLog.shared
+
+    var body: some View {
+        Section {
+            if log.entries.isEmpty {
+                Text("Nothing yet").foregroundStyle(.secondary)
+            }
+            ForEach(log.entries.suffix(12).reversed()) { entry in
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(entry.at.formatted(date: .abbreviated, time: .standard) + "  " + Self.label(entry.event)).font(.subheadline)
+                    if let detail = entry.detail { Text(detail).font(.caption).foregroundStyle(.secondary) }
+                }
+            }
+        } header: {
+            Text("Reader log")
+        } footer: {
+            Text("When reading started and stopped, and whether you were on a call. Included in Export.")
+        }
+    }
+
+    private static func label(_ event: String) -> String {
+        switch event {
+        case "reader_loaded": return "Reader loaded"
+        case "reader_started": return "Reading started"
+        case "reader_finished": return "Reading stopped"
+        case "reader_failed": return "Reader failed to load"
+        case "reader_paused": return "iOS paused reading"
+        case "reader_resumed": return "Reading resumed"
+        case "reader_memory_high": return "Reader near its memory limit"
+        case "capture_lost": return "Reading ended by iOS"
+        case "capture_back": return "Screen captured again"
+        case "frames_stalled": return "No frames for a minute"
+        case "call_ringing": return "Call ringing"
+        case "call_dialing": return "Calling"
+        case "call_connected": return "Call connected"
+        case "call_ended": return "Call ended"
+        default: return event
+        }
+    }
+}
