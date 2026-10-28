@@ -690,6 +690,19 @@
     if (/^Accept if return/.test(notice)) {
       return ret === null || ret === undefined ? 'Drop-off not found · return unknown' : 'Return could be up to ' + miles1(ret) + ' mi';
     }
+    if (out.headingHome) {
+      const added = out.homeAddedMilliMiles || 0;
+      if (/· Decline$/.test(notice)) {
+        return pay * 1000 < s.centsPerMile * Math.max(500, added - (out.uncertaintyMilliMiles || 0))
+          ? 'Out of the way · ' + money + ' for +' + miles1(added) + ' mi'
+          : 'Too slow · ' + money + ' for +' + out.homeAddedMinutes + ' min';
+      }
+      if (/· Close call$/.test(notice)) return 'Heading home · right at ' + target;
+      if (/time unknown/.test(notice)) return 'Heading home · time unknown';
+      if (/· Accept$/.test(notice)) return 'Heading home · counts only the detour';
+      if (notice === 'Check offer' && !out.creditMilliMiles) return 'Heading home · your position unknown';
+      return null;
+    }
     if (/· Decline$/.test(notice)) {
       if (pay * 1000 < s.centsPerMile * outbound) return 'Under ' + target + ' before the drive back';
       const hourly = out.hourlyCents;
@@ -725,6 +738,7 @@
     const tooFar = route && valid(route.returnMilliMiles) && route.returnMilliMiles > Math.max(25000, 2 * outbound + 10000);
     if (tooFar) out.returnNote = 'Return looked wrong (' + miles1(route.returnMilliMiles) + ' mi), not used';
     const ret = route && valid(route.returnMilliMiles) && !tooFar ? route.returnMilliMiles : null;
+    if (s.headingHome) return homeVerdict(out, summary, route, ret, s);
     const rawCredit = route && valid(route.creditMilliMiles) && route.creditMilliMiles >= 300 ? route.creditMilliMiles : 0;
     // The credit can cancel the drive back, never the trip itself (user, Oct 22: Michael's Grill, $5.10 for 3.6 mi, showed
     // "$10.20/mi · Accept" because a 10.1 mi credit cancelled the trip too). And none for a return from a town's center,
@@ -846,6 +860,78 @@
     return out;
   }
 
+  /* Heading home (user, Oct 28: "for when it's your last order … you want the next order to take you there. So it just
+   * needs to be a profitable trip home"). The drive home happens anyway, so an offer is charged only what it adds to it:
+   * here → pickup → drop-offs → home minus here → home, in miles and in minutes, at the same $/mi and $/hr. All of the
+   * added time counts (no order comes after this one), and unlike the drive back to the zone the drive home may cancel
+   * the trip's own miles too. route.creditMilliMiles / creditMinutes: here → home; returnMilliMiles: drop-off → home.
+   * Notice: "Home +2.1 mi · +9 min · Accept". */
+  function homeVerdict(out, summary, route, ret, s) {
+    const valid = v => Number.isSafeInteger(v) && v >= 0;
+    const pay = summary.payCents, outbound = summary.outboundMilliMiles;
+    out.headingHome = true;
+    const target = dollars(s.centsPerMile) + '/mi';
+    const credit = route && valid(route.creditMilliMiles) ? route.creditMilliMiles : null;
+    if (credit) out.creditMilliMiles = credit;
+    const budget = Math.floor(pay * 1000 / s.centsPerMile);
+    if (ret === null) {
+      // No drop-off position: how far from home the drop-off can be.
+      const max = budget - outbound + (credit || 0);
+      out.notice = max >= 0 ? 'Accept if return ≤ ' + miles1(max) + ' mi' : 'Check offer';
+      out.detail = 'Heading home: meets ' + target + ' on the added miles if the last drop-off is ≤ ' + miles1(Math.max(0, max)) + ' mi from home';
+      out.tone = 'tight';
+      return out;
+    }
+    out.returnMilliMiles = ret; out.returnKind = route.kind;
+    // Without here → home, or with a longest-possible return, the added miles are an upper bound: passing proves it.
+    const bound = credit === null || route.kind === 'worst_case';
+    const added = Math.max(0, outbound + ret - (credit || 0));
+    out.homeAddedMilliMiles = added;
+    const effective = Math.max(500, added);
+    out.effectiveMilliMiles = effective;
+    const u = route.kind === 'map' ? (valid(route.uncertaintyMilliMiles) && route.uncertaintyMilliMiles > 0 ? route.uncertaintyMilliMiles : 1000)
+      : route.kind === 'dropoff_town' ? 1500 : 0;
+    if (u) out.uncertaintyMilliMiles = u;
+    const milesOk = pay * 1000 >= s.centsPerMile * (effective + u);
+    const milesBad = !bound && pay * 1000 < s.centsPerMile * Math.max(500, added - u);
+    const trip = tripMinutes(summary, route, ret, credit || 0, s.timeFactors && s.timeFactors[summary.platform]);
+    if (trip.note) out.tripTimeNote = trip.note;
+    out.tripMinutes = trip.minutes; out.tripMinutesEstimated = trip.minutes === null ? null : trip.estimated;
+    if (valid(route.returnMinutes)) out.returnMinutes = route.returnMinutes;
+    const creditMinutes = credit !== null && valid(route.creditMinutes) ? route.creditMinutes : null;
+    if (creditMinutes) out.creditMinutes = creditMinutes;
+    const addedMinutes = trip.minutes !== null && valid(route.returnMinutes)
+      ? Math.max(0, trip.minutes + route.returnMinutes - (creditMinutes || 0)) : null;
+    const timeBound = bound || creditMinutes === null;
+    if (addedMinutes !== null) out.homeAddedMinutes = addedMinutes;
+    const hourly = addedMinutes === null ? null : pay * 60 / Math.max(5, addedMinutes);
+    if (hourly !== null) out.hourlyCents = Math.round(hourly);
+    const hourOk = s.hourlyTargetCents === null ? true : hourly === null ? null
+      : hourly >= s.hourlyTargetCents ? true : timeBound ? null : false;
+    let word;
+    if (milesBad || hourOk === false) word = 'Decline';
+    else if (milesOk) word = hourOk === null ? 'Accept (time unknown)' : 'Accept';
+    else word = bound ? null : 'Close call';
+    out.meetsStandard = word === 'Accept';
+    if (word === null) {
+      const max = budget - outbound + (credit || 0);
+      out.notice = max >= 0 ? 'Accept if return ≤ ' + miles1(max) + ' mi' : 'Check offer';
+      out.detail = 'Heading home: the drop-off could be up to ' + miles1(ret) + ' mi from home';
+      out.tone = 'tight';
+      return out;
+    }
+    const sign = u ? '≈' : bound ? '≤' : '';
+    const minText = addedMinutes === null ? '' : ' · ' + (timeBound ? '≤' : trip.estimated ? '~' : '') + '+' + addedMinutes + ' min';
+    out.notice = 'Home ' + sign + '+' + miles1(added) + ' mi' + minText + ' · ' + word;
+    const slack = budget - effective - u;
+    out.tone = word === 'Decline' ? 'bad' : word === 'Accept' && slack >= 2000 ? 'good' : 'tight';
+    out.detail = 'Heading home: adds ' + sign + miles1(added) + ' mi' + (addedMinutes === null ? '' : ' and ' + addedMinutes + ' min') +
+      ' to the drive home' + (credit !== null ? ' (' + miles1(credit) + ' mi from here)' : '') +
+      ' · ' + (milesOk ? 'meets ' : milesBad ? 'below ' : 'close to ') + target +
+      (hourly !== null && s.hourlyTargetCents !== null ? ' · $' + Math.floor(hourly / 100) + '/hr on the added time' : '');
+    return out;
+  }
+
   /* Stage 1 of the two-stage verdict (roadmap §3): an immediate answer from what is already known, before any
    * routing. context.creditMilliMiles / creditMinutes: a recent drive-back measurement (0 = at __HOME_NAME__), or
    * absent when the position is unknown. When it is known, the return can be at most (here→__HOME_NAME__) + the trip's
@@ -858,6 +944,11 @@
     const known = context && valid(context.creditMilliMiles);
     const credit = known && context.creditMilliMiles >= 300 ? context.creditMilliMiles : 0;
     const creditMinutes = known && credit && valid(context.creditMinutes) ? context.creditMinutes : 0;
+    // Heading home, the drive home can cancel the trip's own miles and minutes: nothing is certain before routing.
+    if (s.headingHome) {
+      if (known && pay * 1000 >= s.centsPerMile * 2 * outbound) return { word: 'LikelyAccept', notice: 'Likely Accept · checking return' };
+      return { word: 'Conditional', notice: 'Accept if return ≤ ' + miles1(Math.floor(pay * 1000 / s.centsPerMile) - outbound + credit) + ' mi' };
+    }
     // Certain mileage failure: below target on the trip's own miles (the credit only offsets the drive back, Oct 22).
     if (pay * 1000 < s.centsPerMile * Math.max(500, outbound)) {
       return { word: 'Decline', notice: perMile(pay, Math.max(500, outbound)) + ' · Decline' };

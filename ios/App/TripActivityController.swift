@@ -84,11 +84,11 @@ enum TripActivityController {
             s.goalText = ShiftFormat.money(goal.remainingCents) + " to " + ShiftFormat.money(goal.goalCents)
         }
         if let offer, now.timeIntervalSince(offer.seenAt) < AppModel.offerHeroSeconds {
-            let parts = (offer.notice ?? "").components(separatedBy: "·").map { $0.trimmingCharacters(in: .whitespaces) }
+            let rates = Verdict.rates(offer.notice)
             s.mode = "offer"
             s.verdict = verdictKey(offer.notice)
-            s.perMileText = parts.first { $0.hasSuffix("/mi") }
-            s.perHourText = parts.first { $0.hasSuffix("/hr") }
+            s.perMileText = rates.miles
+            s.perHourText = rates.time
             s.offerPayText = (Double(offer.payCents) / 100).formatted(.currency(code: "USD"))
             s.offerStore = offer.merchants?.first ?? offer.merchant
             s.offerUntil = offer.seenAt.addingTimeInterval(AppModel.offerHeroSeconds)

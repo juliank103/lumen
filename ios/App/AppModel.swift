@@ -14,7 +14,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var bannerStatus = "checking"
     @Published private(set) var summaryStatus = "checking"
     @Published private(set) var journalCount = 0
-    @Published private(set) var destination = ReturnDestinationStore.current
+    @Published private(set) var destination = ReturnDestinationStore.chosen
+    /// Home and the last-order mode (Oct 28).
+    @Published private(set) var home = ReturnDestinationStore.home
+    @Published private(set) var headingHome = ReturnDestinationStore.headingHome
     @Published private(set) var savedDestinations = ReturnDestinationStore.saved
     @Published private(set) var destinationShared = ReturnDestinationStore.isShared
     @Published private(set) var rules = RulesStore.current
@@ -103,6 +106,7 @@ final class AppModel: ObservableObject {
 
     func refresh() async {
         screenCaptured = UIScreen.main.isCaptured
+        if headingHome != ReturnDestinationStore.headingHome { reloadDestinations() } // Ended with the shift.
         do { probe = try ProbeStorage.read(); storageAvailable = true }
         catch { probe = nil; storageAvailable = false }
         let settings = await UNUserNotificationCenter.current().notificationSettings()
@@ -195,15 +199,31 @@ final class AppModel: ObservableObject {
     func chooseDestination(_ choice: ReturnDestination) {
         destinationShared = ReturnDestinationStore.select(choice)
         reloadDestinations()
+        SettingsSignal.sendDestination()
     }
 
     func removeDestination(_ place: ReturnDestination) {
         ReturnDestinationStore.remove(place)
         reloadDestinations()
+        SettingsSignal.sendDestination()
+    }
+
+    func setHome(_ place: ReturnDestination?) {
+        ReturnDestinationStore.setHome(place)
+        reloadDestinations()
+        SettingsSignal.sendDestination()
+    }
+
+    func setHeadingHome(_ on: Bool) {
+        ReturnDestinationStore.setHeadingHome(on)
+        reloadDestinations()
+        SettingsSignal.sendDestination()
     }
 
     private func reloadDestinations() {
-        destination = ReturnDestinationStore.current
+        destination = ReturnDestinationStore.chosen
+        home = ReturnDestinationStore.home
+        headingHome = ReturnDestinationStore.headingHome
         savedDestinations = ReturnDestinationStore.saved
         destinationShared = destinationShared && ReturnDestinationStore.isShared
     }

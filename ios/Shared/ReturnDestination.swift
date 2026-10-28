@@ -26,6 +26,10 @@ enum ReturnDestinationStore {
     private struct State: Codable {
         var current: ReturnDestination
         var saved: [ReturnDestination]
+        /// Home (user, Oct 28): where the last order of a shift should take you. Set in Account; on the phone only.
+        var home: ReturnDestination? = nil
+        /// The last order: offers are judged on what they add to the drive home, which replaces the return spot.
+        var headingHome: Bool? = nil
     }
     private static let fileName = "return-destination.json"
     private static let localKey = "returnDestinationState"
@@ -49,7 +53,34 @@ enum ReturnDestinationStore {
         return (try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])) != nil
     }
 
-    static var current: ReturnDestination { load().current }
+    /// Where offers' returns end now: Home while heading home, else the chosen return spot.
+    static var current: ReturnDestination {
+        let state = load()
+        return state.headingHome == true ? state.home ?? state.current : state.current
+    }
+    /// The return spot picked in Return location (what its checkmark shows).
+    static var chosen: ReturnDestination { load().current }
+    static var home: ReturnDestination? { load().home }
+    static var headingHome: Bool { let state = load(); return state.headingHome == true && state.home != nil }
+
+    static func setHome(_ place: ReturnDestination?) {
+        var state = load()
+        state.home = place
+        if place == nil { state.headingHome = nil }
+        save(state)
+    }
+
+    static func setHeadingHome(_ on: Bool) {
+        var state = load()
+        state.headingHome = on && state.home != nil ? true : nil
+        save(state)
+    }
+
+    /// The reader: the destination in use as the app's settings signal carried it (no App Group or bridge on this install).
+    static func received(_ destination: ReturnDestination, headingHome: Bool) {
+        let state = State(current: destination, saved: [], home: headingHome ? destination : nil, headingHome: headingHome ? true : nil)
+        if let data = try? JSONEncoder().encode(state) { UserDefaults.standard.set(data, forKey: localKey) }
+    }
     /// Hands the current choice to the reader again (the bridge, after an app launch).
     static func republish() { save(load()) }
     /// Places the user added, most recent first (__HOME_NAME__ is always available and not listed here).

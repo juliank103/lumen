@@ -77,6 +77,7 @@ struct AccountTab: View {
                         row("Hourly target", model.rules.hourlyText)
                     }
                     NavigationLink { ReturnDestinationView() } label: { row("Return location", model.destination.name) }
+                    NavigationLink { HomeAddressView() } label: { row("Home", model.home == nil ? "Not set" : model.headingHome ? "Heading home" : "Set") }
                 } header: {
                     HStack {
                         Text("Your rules")

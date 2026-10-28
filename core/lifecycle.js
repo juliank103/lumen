@@ -104,6 +104,7 @@
     // returnTo: the destination the user chose in the app (their own place; default __HOME_NAME__).
     const rules = { centsPerMile: settings.centsPerMile || 100, hourlyTargetCents: settings.hourlyTargetCents === undefined ? null : settings.hourlyTargetCents,
       returnTo: input.returnTo || '__HOME_NAME__' };
+    if (settings.headingHome === true) rules.headingHome = true;
     const prelim = input.preliminary || { word: 'Unreadable', notice: 'Check offer' };
     const first = event('prediction_made', input.offerId, input.preliminaryAt || input.seenAt, 'lumen', readerConfidence, {
       stage: 'preliminary', verdict: verdictWord(prelim.notice), notice: prelim.notice, versions: v, rules,

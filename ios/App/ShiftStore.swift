@@ -116,6 +116,11 @@ final class ShiftStore: ObservableObject {
     /// `exact`: end at `now` as given (the driver set the end time), not at the pause.
     func end(at now: Date = Date(), exact: Bool = false) {
         guard var shift = current else { return }
+        // The last order was the last: offers go back to the return spot (Oct 28).
+        if ReturnDestinationStore.headingHome {
+            ReturnDestinationStore.setHeadingHome(false)
+            SettingsSignal.sendDestination()
+        }
         shift.endedAt = exact ? min(Date(), max(now, shift.startedAt.addingTimeInterval(60))) : shift.pausedAt ?? now
         shift.pausedAt = nil
         current = nil

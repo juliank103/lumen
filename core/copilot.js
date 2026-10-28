@@ -4,7 +4,8 @@
   const VERSION = 1;
   const PLATFORMS = ['doordash', 'uber_eats', 'grubhub'];
   const DEFAULTS = Object.freeze({ centsPerMile: 100, minimumOfferCents: null,
-    hourlyTargetCents: null, hourlyBasis: 'gross', vehicleCentsPerMile: null, timeFactors: null, returnTimeShare: 1, slowBar: null, standard: null });
+    hourlyTargetCents: null, hourlyBasis: 'gross', vehicleCentsPerMile: null, timeFactors: null, returnTimeShare: 1, slowBar: null, standard: null,
+    headingHome: false });
   const has = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
   const clone = value => JSON.parse(JSON.stringify(value));
   function assert(ok, message) { if (!ok) throw new Error(message); }
@@ -59,6 +60,8 @@
       integer(s.slowBar.hourlyCents, 'slowBar.hourlyCents', 0, 1000000);
       integer(s.slowBar.centsPerMile, 'slowBar.centsPerMile', 1, 10000);
     }
+    // Heading home (user, Oct 28): the next offer is the last one, judged on what it adds to the drive home.
+    assert(typeof s.headingHome === 'boolean', 'headingHome must be a boolean');
     // A day's bar (user, Oct 27: weekdays at $23.50/$0.95): centsPerMile and hourlyTargetCents are then today's bar and
     // `standard` the full rules — { hourlyCents, centsPerMile }.
     if (s.standard !== null) {

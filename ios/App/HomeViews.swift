@@ -15,18 +15,21 @@ struct HomeOfferCard: View {
 
     /// An icon for the why line, from its first words.
     static func whyIcon(_ why: String) -> String {
-        why.hasPrefix("On your way home") ? "house" : why.hasPrefix("Too slow") || why.hasPrefix("Time") ? "clock"
-            : why.hasPrefix("Long drive back") ? "arrow.uturn.backward" : why.contains("map pin") ? "mappin"
+        why.hasPrefix("On your way home") || why.hasPrefix("Heading home") ? "house" : why.hasPrefix("Too slow") || why.hasPrefix("Time") ? "clock"
+            : why.hasPrefix("Long drive back") || why.hasPrefix("Out of the way") ? "arrow.uturn.backward" : why.contains("map pin") ? "mappin"
             : why.hasPrefix("Drop-off not found") ? "mappin.slash" : why.hasPrefix("Numbers") ? "exclamationmark.triangle"
             : why.contains("town center") || why.contains("drop-off street") ? "road.lanes" : "info.circle"
     }
 
-    /// "$1.42/mi · $31/hr · Accept" → ("$1.42", "$31").
+    /// Heading home (Oct 28): the numbers are what the offer adds to the drive home.
+    private var heading: Bool { offer.notice?.hasPrefix("Home ") == true }
+
+    /// "$1.42/mi · $31/hr · Accept" → ("$1.42", "$31"); "Home +2.5 mi · +12 min · Accept" → ("+2.5", "+12").
     private var rates: (perMile: String?, perHour: String?) {
-        let parts = (offer.notice ?? "").components(separatedBy: "·").map { $0.trimmingCharacters(in: .whitespaces) }
-        let mile = parts.first { $0.hasSuffix("/mi") }.map { String($0.dropLast(3)) }
-        let hour = parts.first { $0.hasSuffix("/hr") }.map { String($0.dropLast(3)) }
-        return (mile, hour)
+        let r = Verdict.rates(offer.notice)
+        let bare = { (text: String?) in text.map { $0.replacingOccurrences(of: "/mi", with: "").replacingOccurrences(of: "/hr", with: "")
+            .replacingOccurrences(of: " min", with: "").replacingOccurrences(of: " mi", with: "") } }
+        return (bare(r.miles), bare(r.time))
     }
 
     var body: some View {
@@ -53,8 +56,8 @@ struct HomeOfferCard: View {
             .background(color, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 
             HStack(alignment: .top) {
-                bigNumber(rates.perMile ?? "—", "per mile")
-                bigNumber(rates.perHour ?? "—", "per hour")
+                bigNumber(rates.perMile ?? "—", heading ? "miles to drive home" : "per mile")
+                bigNumber(rates.perHour ?? "—", heading ? "minutes to drive home" : "per hour")
             }
             HStack {
                 Text(TripFormat.dollars(offer.payCents))
@@ -113,7 +116,11 @@ struct HomeShiftStrip: View {
     var body: some View {
         if let shift = shifts.current, let m = shifts.metrics {
             VStack(alignment: .leading, spacing: 4) {
-                Text("This Shift").font(.caption.weight(.semibold)).foregroundStyle(Theme.secondaryText)
+                HStack {
+                    Text("This Shift").font(.caption.weight(.semibold)).foregroundStyle(Theme.secondaryText)
+                    Spacer()
+                    HeadingHomeButton(compact: true)
+                }
                 HStack(alignment: .firstTextBaseline) {
                     CountUpMoney(cents: m.earningsCents).font(.title2.weight(.bold))
                     Spacer()
@@ -164,6 +171,7 @@ struct HomeWaiting: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 18)
             if shifts.current != nil {
+                HeadingHomeButton()
                 Button(role: .destructive) { confirmEnd = true } label: {
                     Text("End shift").font(.headline).frame(maxWidth: .infinity).frame(height: 56)
                         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Theme.track, lineWidth: 1.5))
@@ -477,8 +485,8 @@ struct HomeOfferRow: View {
     var body: some View {
         let verdict = Verdict(notice: offer.notice)
         let color = Theme.color(verdict)
-        let parts = (offer.notice ?? "").components(separatedBy: "·").map { $0.trimmingCharacters(in: .whitespaces) }
-        let rates = parts.filter { $0.hasSuffix("/mi") || $0.hasSuffix("/hr") }.joined(separator: " · ")
+        let numbers = Verdict.rates(offer.notice)
+        let rates = [numbers.miles, numbers.time].compactMap { $0 }.joined(separator: " · ")
         HStack(spacing: 12) {
             Image(systemName: verdict.icon).font(.system(size: 16, weight: .black)).foregroundStyle(Theme.ground)
                 .frame(width: 34, height: 34).background(color, in: Circle())
