@@ -17,9 +17,13 @@
   // Layouts checked against real offer-card screenshots (October 12, 2026). Other screens are not read yet.
   const VERIFIED_LAYOUTS = ['uber_eats.offer_card', 'uber_eats.early_look', 'doordash.offer_card', 'doordash.offer_card_stops', 'grubhub.offer_card'];
   const MARKERS = {
-    uber_eats: [/Guaranteed \(incl\. tip\)/i, /\bmin\s*\(\s*[\d.]+\s*mi\)\s*total/i, /Boost\+/i, /^Delivery(\s*\(\d+\))?$/i, /^Exclusive$/i, /expected tip/i, /Customer verification/i,
+    // Oct 28 card: "34 min • 13.0 mi" in place of "… total", and "Match" on cards open to every driver. The fork icon
+    // before "Delivery" can be read as a glyph ("Y1 Delivery"): on a Match card that left one Uber marker, and the
+    // loose "incl. tips" in "Guaranteed (incl. tip)" made it DoorDash (user, Oct 28 morning shift).
+    uber_eats: [/Guaranteed \(incl\. tip\)/i, /\bmin\s*\(\s*[\d.]+\s*mi\)\s*total/i, /Boost\+/i, /^(\S{1,2}\s+)?(Delivery|Package)(\s*\(\d+\))?$/i, /^Exclusive$/i, /expected tip/i, /Customer verification/i,
       // Early-look "Match" cards and "Add a delivery" during an order (Oct 18 screenshots).
-      /Matching may take longer/i, /^Add a delivery$/i, /Est\.? ?delivery \d{1,2}:\d{2}/i],
+      /Matching may take longer/i, /^Add a delivery$/i, /Est\.? ?delivery \d{1,2}:\d{2}/i,
+      /^(\d{1,2}\s*hr?\s*)?\d{1,3}\s*min\s*[•·∙*]\s*[\d.]+\s*mi$/i, /^Match$/i],
     // "Pick up 3 orders" / "Multiple dropoffs (3 stops)": DoorDash's multi-order card (food bank retail pickup, Oct 15
     // 2026), whose top ("Decline") is outside the part of the screen that is read.
     doordash: [/incl\. tips/i, /^Deliver by\b/i, /Customer dropoff/i, /^((Retail|Grocery|Shop|Store)\s+)?Pickup$/i, /\bstops?\s*\(\s*[\d.]+\s*mi\)/i, /^Decline$/i,
@@ -258,8 +262,13 @@
   function readUber(lines, pay, f, problems) {
     // "25 min (7.1 mi) total", also with a bracket misread or lost ("{7.1 mi", "(7.1 mi total", "t0tal").
     // "Add a delivery" during an order adds "+22 min (+ 6.3 mi) total" (Oct 18 screenshots).
-    const TOTAL = /(\d{1,3})\s*min\s*([({[])?\s*\+?\s*(\d{1,3}(?:\.\d{1,2})?)\s*mi\b\s*[)}\]]?\s*(t[o0]ta[l1I])?/i;
-    const isTotal = text => { const m = TOTAL.exec(text); return m && (m[2] || m[4]) ? m : null; };
+    // Since Oct 28 the row is "34 min • 13.0 mi" (no bracket, no "total"): that counts when it's the whole line.
+    const TOTAL = /(\d{1,3})\s*min\s*(?:([({[])|[^\w\s.$+]{1,2})?\s*\+?\s*(\d{1,3}(?:\.\d{1,2})?)\s*mi\b\s*[)}\]]?\s*(t[o0]ta[l1I])?/i;
+    const ROW = /^(?:(?:\d{1,2}|[Il|])\s*h(?:r|our)?s?\s*)?\d{1,3}\s*min\s*[^\w\s.$]{0,2}\s*\+?\s*\d{1,3}(?:\.\d{1,2})?\s*mi$/i;
+    const isTotal = text => { const m = TOTAL.exec(text); return m && (m[2] || m[4] || ROW.test(text)) ? m : null; };
+    // The new card puts "Guaranteed (incl. tip)" (and on early looks "Est. delivery …") between the row and the store.
+    // Nor a map label at the card's right edge ("ie" beside a stacked card).
+    const notStore = l => !/[A-Za-z]{2}/.test(l.text) || l.x > 0.6 || /Guaranteed|incl\.? tip|expected tip|Boost|^Est\.? ?delivery|^Exclusive$/i.test(l.text);
     const total = lines.find(l => isTotal(l.text));
     if (total) {
       const t = isTotal(total.text), m = [t[0], t[1], t[3]];
@@ -270,8 +279,9 @@
       // Uber package trips read as 9–31 min and flagged "time and miles don't fit").
       const hm = /(?:^|[^A-Za-z0-9])(\d{1,2}|[Il|])\s*h(?:r|our)?s?\s*(\d{1,2})\s*min/i.exec(total.text);
       if (hm) f.appMinutes = Number(/^\d+$/.test(hm[1]) ? hm[1] : 1) * 60 + Number(hm[2]);
-      const next = below(lines, total);
+      const next = below(lines, total).filter(l => !notStore(l));
       if (next[0] && !isAddress(next[0].text)) f.merchants.push(next[0].text);
+      if (lines.some(l => /^Est\.?\s*delivery\s+\d{1,2}:\d{2}/i.test(l.text))) f.earlyLook = true;
       const area = next[1] && /,\s*([A-Za-z][A-Za-z .'-]{2,30})$/.exec(next[1].text);
       if (area) { f.dropoffArea = area[1].trim(); f.routing.dropoffQuery = next[1].text; }
     } else {
@@ -298,8 +308,9 @@
         f.earlyLook = true;
       } else problems.push('Uber Eats total time/mileage line not found');
     }
-    const deliveries = lines.find(l => /^Delivery\s*\((\d+)\)$/i.test(l.text));
-    f.orderCount = deliveries ? Number(/\((\d+)\)/.exec(deliveries.text)[1]) : (lines.some(l => /^Delivery$/i.test(l.text)) ? 1 : null);
+    // "Package" trips count like "Delivery"; the pill's icon can come first as a glyph.
+    const deliveries = lines.find(l => /^(\S{1,2}\s+)?(Delivery|Package)\s*\((\d+)\)$/i.test(l.text));
+    f.orderCount = deliveries ? Number(/\((\d+)\)/.exec(deliveries.text)[1]) : (lines.some(l => /^(\S{1,2}\s+)?(Delivery|Package)$/i.test(l.text)) ? 1 : null);
     const boost = lines.find(l => /^\$(\d{1,3})\.(\d{2})\s*Boost\+?\s*included/i.test(l.text));
     if (boost) { const b = /^\$(\d{1,3})\.(\d{2})/.exec(boost.text); f.includedBoostCents = Number(b[1]) * 100 + Number(b[2]); }
     f.exclusive = lines.some(l => /^Exclusive$/i.test(l.text));
