@@ -20,7 +20,7 @@ enum ShiftFormat {
 }
 
 /// The shift's money, counting up when an order adds to it (user, Oct 25: "a satisfying count up animation rather than
-/// just pop change"): it ticks from the old total to the new one, easing out (longer for bigger orders), glows green
+/// just pop change"): it ticks quickly from the old total to the new one, easing out (a little longer for bigger orders), glows green
 /// with a "+$12.50" floating up beside it, and lands with a haptic. A lower total (an edit, a new shift) just changes.
 /// Orders usually finish while the delivery app is in front: the last total shown is remembered, and the count plays
 /// when __APP_NAME__ is opened again.
@@ -68,14 +68,14 @@ struct CountUpMoney: View {
         let from = Int(value.rounded())
         if remember { UserDefaults.standard.set(cents, forKey: Self.shownKey) }
         guard cents > from else { value = Double(cents); return }
-        // $5 counts for about a second, $40 for two.
-        let duration = min(2.0, 0.85 + Double(cents - from) / 100 * 0.03)
+        // About half a second for $5, under a second for $40 (user, Oct 28: "should be faster"; was 1–2 s).
+        let duration = min(0.9, 0.45 + Double(cents - from) / 100 * 0.012)
         withAnimation(.spring(duration: 0.3)) { glowing = true; added = cents - from }
         withAnimation(.timingCurve(0.15, 0.6, 0.25, 1, duration: duration)) { value = Double(cents) }
         DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
             landed += 1
-            withAnimation(.easeOut(duration: 0.7)) { glowing = false }
-            withAnimation(.easeIn(duration: 0.6).delay(0.9)) { added = nil }
+            withAnimation(.easeOut(duration: 0.5)) { glowing = false }
+            withAnimation(.easeIn(duration: 0.5).delay(0.7)) { added = nil }
         }
     }
 }
