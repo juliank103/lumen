@@ -26,6 +26,10 @@ struct ContentView: View {
                         .gesture(DragGesture(minimumDistance: 20).onEnded { if $0.translation.width < -60 { menu.toggle() } })
                 }
             }
+            // The one home of the system broadcast picker, never removed. Each button used to host it too, so the one
+            // picker moved between them on every redraw, and Start shift's copy went away as soon as the shift began
+            // (user, Oct 28: "still doesn't read offers off the start shift button"; the top toggle worked).
+            .background(PickerHost().frame(width: 1, height: 1).opacity(0.01))
         }
         .tint(Theme.purple)
         .preferredColorScheme(PreviewData.forcedScheme ?? .dark)
@@ -170,7 +174,6 @@ struct DashBottomBar: View {
                             .background(Theme.purple, in: Capsule())
                     }
                     .buttonStyle(.plain)
-                    .background(PickerHost().frame(width: 1, height: 1).opacity(0.01))
                 } else if !reading {
                     BroadcastButton(running: false)
                 }
@@ -198,7 +201,6 @@ struct ReadingToggle: View {
             .background(Theme.card, in: Capsule())
         }
         .buttonStyle(.plain)
-        .background(PickerHost().frame(width: 1, height: 1).opacity(0.01))
         .accessibilityLabel(capturing ? "\(text). Double-tap to stop reading offers." : "Start reading offers")
     }
 }

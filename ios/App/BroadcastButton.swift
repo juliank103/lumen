@@ -3,7 +3,8 @@ import ReplayKit
 
 /// Full-width Dasher-style pill that opens the system broadcast sheet. Only the system picker can start a broadcast;
 /// laying it invisibly over the pill did not receive taps on the user's phone (build 19), so the pill now presses
-/// the picker's own button directly. The picker stays in the view hierarchy (1×1, transparent) so it can present.
+/// the picker's own button directly. The picker stays in the view hierarchy (1×1, transparent, hosted once at the root
+/// of ContentView) so it can present.
 struct BroadcastButton: View {
     let running: Bool
 
@@ -17,7 +18,6 @@ struct BroadcastButton: View {
                 .background(running ? Theme.card : Theme.purple, in: Capsule())
         }
         .buttonStyle(.plain)
-        .background(PickerHost().frame(width: 1, height: 1).opacity(0.01))
     }
 }
 
