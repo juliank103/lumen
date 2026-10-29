@@ -29,7 +29,7 @@ struct LiveOffer: Codable, Identifiable {
     let returnDebug: String?
     /// How the trip time was estimated when the card showed none.
     let tripTimeNote: String?
-    /// The one reason behind the verdict ("On your way home · saves 4.1 mi", "Too slow · 17 min for $5.10"): the
+    /// The one reason behind the verdict ("On the way back · saves 4.1 mi", "Too slow · 17 min for $5.10"): the
     /// notification's second line and the Home card (user, Oct 22). Nil on older offers.
     let why: String?
     /// Predicted by the refined verdict (for "predicted vs actual" after the order): effective miles, $/hr, trip and

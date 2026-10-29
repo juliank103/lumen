@@ -755,7 +755,9 @@
     }
     if (/· Close call$/.test(notice)) return out.returnKind === 'map' ? source() : 'Right at ' + target;
     if (/· Accept( \(time unknown\))?$/.test(notice)) {
-      if ((out.creditMilliMiles || 0) >= 1000) return 'On your way home · saves ' + miles1(out.creditMilliMiles) + ' mi';
+      // Not "home": the return spot is whatever is chosen (user, Oct 29: "confusing when I'm not going home and the return
+      // location is set to __HOME_NAME__"). Home wording is for Heading home only.
+      if ((out.creditMilliMiles || 0) >= 1000) return 'On the way back · saves ' + miles1(out.creditMilliMiles) + ' mi';
       if (/time unknown/.test(notice)) return 'Time unknown · miles pass';
       if (out.tripMinutesEstimated) return 'Time guessed · ' + (source() || 'miles pass');
       return source();
