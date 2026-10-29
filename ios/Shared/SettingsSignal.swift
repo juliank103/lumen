@@ -38,6 +38,7 @@ enum SettingsSignal {
             post(prefix + "factor.\(app).\(factor)")
         }
         sendDestination()
+        sendStoreWaits(timing.storeWaits ?? [:])
         // Slow hours: each weekday and meal time's tier (0 normal … 3 dead).
         for (key, tier) in SlowHours.slots() {
             let parts = key.split(separator: "|")
@@ -88,6 +89,58 @@ enum SettingsSignal {
         ReturnDestinationStore.received(place, headingHome: mode == 2)
     }
 
+    /// Restaurants slow at lunch or dinner (Oct 28), up to 12: entry i is "wait.<i>.<place>.<digit>" — places 0–4 the
+    /// store key (0…99999), 5–6 the meal and minutes (minutes, +30 for dinner) — then "wait.check.<0…96>" and
+    /// "wait.count.<n>". The reader takes the table once the count arrives and the check matches.
+    private static let waitSlots = 12
+
+    static func sendStoreWaits(_ waits: [String: [String: Int]]) {
+        var entries: [(key: Int, value: Int)] = []
+        for (meal, table) in waits {
+            for (key, minutes) in table {
+                if let k = Int(key), (0..<100_000).contains(k) { entries.append((k, (meal == "dinner" ? 30 : 0) + max(0, min(29, minutes)))) }
+            }
+        }
+        entries = Array(entries.sorted { $0.value % 30 > $1.value % 30 }.prefix(waitSlots))
+        for (i, entry) in entries.enumerated() {
+            var scale = 1
+            for place in 0..<5 { post(prefix + "wait.\(i).\(place).\(entry.key / scale % 10)"); scale *= 10 }
+            post(prefix + "wait.\(i).5.\(entry.value % 10)")
+            post(prefix + "wait.\(i).6.\(entry.value / 10)")
+        }
+        post(prefix + "wait.check.\(waitCheck(entries))")
+        post(prefix + "wait.count.\(entries.count)")
+    }
+
+    private static func waitCheck(_ entries: [(key: Int, value: Int)]) -> Int {
+        entries.enumerated().reduce(0) { ($0 + $1.element.key * 7 + $1.element.value * 31 + $1.offset * 3) % 97 }
+    }
+
+    private static var pendingWaits: [String: Int] = [:]
+
+    private static func receivedWaits(_ parts: [String], _ value: Int) {
+        pendingLock.lock(); defer { pendingLock.unlock() }
+        pendingWaits[parts.dropFirst().dropLast().joined(separator: ".")] = value
+        guard parts.count == 3, parts[1] == "count" else { return }
+        var entries: [(key: Int, value: Int)] = []
+        for i in 0..<min(value, waitSlots) {
+            var key = 0, scale = 1
+            for place in 0..<5 {
+                guard let d = pendingWaits["\(i).\(place)"] else { return }
+                key += d * scale; scale *= 10
+            }
+            guard let low = pendingWaits["\(i).5"], let high = pendingWaits["\(i).6"] else { return }
+            entries.append((key, high * 10 + low))
+        }
+        guard pendingWaits["check"] == waitCheck(entries) else { return }
+        var table: [String: [String: Int]] = ["lunch": [:], "dinner": [:]]
+        for entry in entries { table[entry.value >= 30 ? "dinner" : "lunch"]?[String(entry.key)] = entry.value % 30 }
+        let defaults = UserDefaults.standard, decoder = JSONDecoder()
+        var timing = defaults.data(forKey: "timing").flatMap { try? decoder.decode(TimingStore.Timing.self, from: $0) } ?? TimingStore.Timing()
+        timing.storeWaits = table
+        defaults.set(try? JSONEncoder().encode(timing), forKey: "timing")
+    }
+
     /// The reader: listen for every possible value (once per broadcast).
     static func listen() {
         var names = perMile.map { "cpm.\($0)" } + hourly.map { "hourly.\($0)" } + shares.map { "share.\($0)" }
@@ -96,6 +149,8 @@ enum SettingsSignal {
         for day in 0..<7 { for part in ["lunch", "dinner", "other"] { names += (0...3).map { "slot.\(day).\(part).\($0)" } } }
         for i in 0..<6 { for d in 0...9 { names += ["dest.lat.\(i).\(d)", "dest.lon.\(i).\(d)"] } }
         names += (0...1).flatMap { ["dest.latneg.\($0)", "dest.lonneg.\($0)"] } + (0...96).map { "dest.check.\($0)" } + (0...2).map { "dest.mode.\($0)" }
+        for i in 0..<waitSlots { for place in 0..<7 { names += (0...9).map { "wait.\(i).\(place).\($0)" } } }
+        names += (0...96).map { "wait.check.\($0)" } + (0...waitSlots).map { "wait.count.\($0)" }
         for name in names {
             CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, name, _, _ in
                 guard let full = name?.rawValue as String? else { return }
@@ -112,6 +167,8 @@ enum SettingsSignal {
         switch parts.first {
         case "dest":
             receivedDestination(parts, value)
+        case "wait":
+            receivedWaits(parts, value)
         case "cpm", "hourly", "wdhourly", "wdcpm", "wddays":
             var rules = defaults.data(forKey: "rules").flatMap { try? decoder.decode(Rules.self, from: $0) } ?? .defaults
             switch parts.first {

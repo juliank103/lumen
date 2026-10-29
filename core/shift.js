@@ -1276,6 +1276,47 @@
     return { share, orders: n };
   }
 
+  /* A store's name as a short number for the reader, which gets settings only as numbers (core/screen-reader.js
+   * `storeKey` is the same): FNV-1a of the normalized name, mod 100000. Normalized twice: "Corner Grill (Main St)" keeps
+   * a space after the bracket on the first pass, so its "grill" stays; the second pass makes it "corner" like "Corner Grill". */
+  const waitName = name => normalizeName(normalizeName(name));
+  function storeKey(name) {
+    let h = 0x811c9dc5;
+    for (const ch of waitName(name)) { h ^= ch.charCodeAt(0) & 0xff; h = Math.imul(h, 0x01000193) >>> 0; }
+    return h % 100000;
+  }
+  /* Restaurants slow at a meal time (user, Oct 28: "the restaurants I was shown usually have longer wait times during
+   * dinner"). From your own pickups (arrived → left; unfinished ones left out), per store name and meal time (lunch
+   * 10–15, dinner 15–22, as slow hours): the expected wait, pulled toward your usual wait (the median of all your waits,
+   * else 4 min) as if one more visit had been usual — one long wait counts, but not fully. The extra over your usual wait
+   * is what an offer's own time doesn't allow for. Kept when 2+ minutes, at most 20; the 12 largest.
+   * Returns { lunch: { "<storeKey>": minutes }, dinner: { … }, usualMinutes, stores: [{ name, meal, visits, extra }] }. */
+  function storeWaits(input) {
+    const off = input.offsetMinutes || 0;
+    const visits = storeVisits(input.trips).filter(v => !v.censored && valid(v.seconds) && v.seconds >= 30);
+    const all = visits.map(v => v.seconds / 60).sort((a, b) => a - b);
+    const usual = all.length >= 5 ? all[Math.floor(all.length / 2)] : 4;
+    const groups = {};
+    for (const v of visits) {
+      const l = localMinute(v.arrivedAt, off), h = l ? l.minuteOfDay / 60 : null;
+      const meal = h === null ? null : h >= 10 && h < 15 ? 'lunch' : h >= 15 && h < 22 ? 'dinner' : null;
+      const key = waitName(v.name);
+      if (!meal || !key) continue;
+      const g = groups[meal + '|' + key] = groups[meal + '|' + key] || { name: v.name, meal, minutes: [], at: [] };
+      // Several orders picked up together (3 Lou Malnati's orders, Oct 16) are one wait.
+      const same = g.at.findIndex(t => Math.abs(t - ms(v.arrivedAt)) < 5 * 60000);
+      if (same >= 0) { g.minutes[same] = Math.max(g.minutes[same], v.seconds / 60); continue; }
+      g.at.push(ms(v.arrivedAt)); g.minutes.push(v.seconds / 60);
+    }
+    const stores = Object.values(groups).map(g => {
+      const expected = (g.minutes.reduce((a, b) => a + b, 0) + usual) / (g.minutes.length + 1);
+      return { name: g.name, meal: g.meal, visits: g.minutes.length, extra: Math.min(20, Math.round(expected - usual)) };
+    }).filter(g => g.extra >= 2).sort((a, b) => b.extra - a.extra || b.visits - a.visits).slice(0, 12);
+    const out = { lunch: {}, dinner: {}, usualMinutes: Math.round(usual * 10) / 10, stores };
+    for (const g of stores) out[g.meal][String(storeKey(g.name))] = g.extra;
+    return out;
+  }
+
   const json = f => (...args) => JSON.stringify(f(...args.map(a => (typeof a === 'string' ? JSON.parse(a) : a))));
   /* Slow hours (user, Oct 26: "some shifts or consistent times where I need to lower my expectations"). For each weekday
    * and meal time (lunch 10–15, dinner 15–22, other), how often an offer meeting the full rules came per hour online.
@@ -1313,12 +1354,12 @@
 
   const api = { METERS_PER_MILE, SAME_PLACE_MILES, normalizeName, similarity, distanceMiles, emptyDb, matchRestaurant, updateRestaurants,
     mergeRestaurants, renameRestaurant, mergeSuggestions, storeVisits, restaurantStats, mealPeriod, shiftMetrics, toCSV, exportTables,
-    rangeMetrics, weekStats, dayPart, dominantPart, DAY_PARTS, zoneHeat, offerWorth, parseGridwise, parseCSV, goalStatus, goals, readerHealth, breakdown, verdictOf, shiftPlan, timeFactors, returnShare,
+    rangeMetrics, weekStats, dayPart, dominantPart, DAY_PARTS, zoneHeat, offerWorth, parseGridwise, parseCSV, goalStatus, goals, readerHealth, breakdown, verdictOf, shiftPlan, timeFactors, returnShare, storeKey, storeWaits,
     // JSON bridges for the iPhone (every argument is JSON text).
     updateRestaurantsJSON: json(updateRestaurants), mergeRestaurantsJSON: json(mergeRestaurants), renameRestaurantJSON: json(renameRestaurant),
     mergeSuggestionsJSON: json(mergeSuggestions), restaurantStatsJSON: json(restaurantStats), shiftMetricsJSON: json(shiftMetrics),
     exportTablesJSON: json(exportTables), weekStatsJSON: json(weekStats), zoneHeatJSON: json(zoneHeat), parseGridwiseJSON: json(parseGridwise), goalsJSON: json(goals), readerHealthJSON: json(readerHealth),
-    breakdownJSON: json(breakdown), shiftPlanJSON: json(shiftPlan), timeFactorsJSON: json(timeFactors), returnShareJSON: json(returnShare), slowSlots, slowSlotsJSON: json(slowSlots) };
+    breakdownJSON: json(breakdown), shiftPlanJSON: json(shiftPlan), timeFactorsJSON: json(timeFactors), returnShareJSON: json(returnShare), slowSlots, slowSlotsJSON: json(slowSlots), storeWaitsJSON: json(storeWaits) };
   root.Shift = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

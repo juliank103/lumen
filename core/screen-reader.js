@@ -629,11 +629,37 @@
     const mph = Math.min(45, Math.max(18, sampleMinutes > 0 ? (sampleMilliMiles / 1000) / (sampleMinutes / 60) : 25));
     return Math.round(milliMiles / 1000 / mph * 60);
   }
-  function tripMinutes(summary, route, ret, credit, factor) {
-    if (summary.appMinutes !== null) return { minutes: summary.appMinutes, estimated: false, note: null };
+  /* Restaurants slow at this meal time, learned from your own pickups (user, Oct 28: "the restaurants I was shown
+   * usually have longer wait times during dinner"; core/shift.js storeWaits): settings.storeWaits maps a store's key to
+   * the minutes it usually takes beyond your usual wait. Those minutes go on top of the card's own time. The key is the
+   * same as core/shift.js storeKey: FNV-1a of the normalized name, mod 100000. */
+  function storeKey(name) {
+    // core/shift.js normalizeName, applied twice like there.
+    const normalize = text => String(text || '').toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/&/g, ' and ').replace(/['’`]/g, '')
+      .replace(/[^a-z0-9]+/g, ' ').replace(/^the /, '').replace(/ (restaurant|restaurants|kitchen|grill)$/, '').replace(/\s+/g, ' ').trim();
+    const key = normalize(normalize(name));
+    let h = 0x811c9dc5;
+    for (const ch of key) { h ^= ch.charCodeAt(0) & 0xff; h = Math.imul(h, 0x01000193) >>> 0; }
+    return h % 100000;
+  }
+  function storeWait(summary, s) {
+    const out = { minutes: 0, stores: [] };
+    if (!s.storeWaits) return out;
+    const seen = new Set();
+    for (const name of summary.merchants || []) {
+      const key = String(storeKey(name)), extra = s.storeWaits[key];
+      if (seen.has(key) || !(extra > 0)) continue;
+      seen.add(key); out.minutes += extra; out.stores.push(String(name).replace(/\s*\([^)]*\)?\s*$/, '').trim());
+    }
+    return out;
+  }
+  function tripMinutes(summary, route, ret, credit, factor, wait) {
+    const extra = wait || 0;
+    if (summary.appMinutes !== null) return { minutes: summary.appMinutes + extra, estimated: false, note: null };
     const valid = v => Number.isSafeInteger(v) && v >= 0;
     const pickups = (summary.routing && summary.routing.pickupCount) || 1, drops = summary.orderCount || 1;
-    const stops = PICKUP_STOP_MINUTES * pickups + DROPOFF_STOP_MINUTES * drops;
+    // The assumed 8 min a pickup already allows about 4 more than a usual wait.
+    const stops = PICKUP_STOP_MINUTES * pickups + DROPOFF_STOP_MINUTES * drops + Math.max(0, extra - 4);
     let drive = null, how = null;
     if (route && valid(route.tripDriveMinutes)) { drive = route.tripDriveMinutes; how = 'Apple Maps drive'; }
     else if (route && valid(route.returnMinutes) && ret > 0 && route.kind !== 'worst_case') {
@@ -679,6 +705,7 @@
       out.tone = 'tight';
     }
     out.why = whyLine(out, !!summary.suspect, copilot.settings(settings || {}));
+    if (out.storeWaitMinutes && out.detail) out.detail += ' · includes +' + out.storeWaitMinutes + ' min usual extra wait at ' + out.storeWaitStores.join(' + ');
     return out;
   }
 
@@ -719,6 +746,8 @@
       if (pay * 1000 < s.centsPerMile * outbound) return 'Under ' + target + ' before the drive back';
       const hourly = out.hourlyCents;
       if (hourly && s.hourlyTargetCents !== null && hourly < s.hourlyTargetCents) {
+        // A slow restaurant's wait tipped it (or helped): say whose.
+        if (out.storeWaitMinutes) return 'Slow pickup · ' + out.storeWaitStores[0] + ' usually +' + out.storeWaitMinutes + ' min';
         return 'Too slow · ' + Math.round(pay * 60 / hourly) + ' min for ' + money;
       }
       if (ret !== null && ret !== undefined && ret > outbound) return 'Long drive back · ' + miles1(ret) + ' mi';
@@ -745,6 +774,9 @@
     if (outbound === null || pay === null || summary.maxReturnMilliMiles === null) return out;
     const valid = v => Number.isSafeInteger(v) && v >= 0;
     const target = '$' + (s.centsPerMile / 100).toFixed(2).replace(/\.00$/, '') + '/mi';
+    const wait = storeWait(summary, s);
+    if (wait.minutes) { out.storeWaitMinutes = wait.minutes; out.storeWaitStores = wait.stores; }
+    const cardMinutes = valid(summary.appMinutes) ? summary.appMinutes + wait.minutes : null;
     // A return far longer than the trip itself is a wrong match (Oct 21 export: a town 527 mi away, a 98 mi worst case on
     // a 7 mi trip): treat it as unknown rather than decline on it.
     const tooFar = route && valid(route.returnMilliMiles) && route.returnMilliMiles > Math.max(25000, 2 * outbound + 10000);
@@ -763,11 +795,11 @@
     if (ret === null) {
       // The order alone, before any drive back, is under the hourly target: Decline, not "Accept if return ≤ …" (Oct 24:
       // 84 such offers, e.g. $2.55 for 15 minutes, were shown as maybes).
-      if (s.hourlyTargetCents !== null && valid(summary.appMinutes) && summary.appMinutes >= 5 &&
-          pay * 60 < s.hourlyTargetCents * summary.appMinutes) {
-        out.hourlyCents = Math.round(pay * 60 / summary.appMinutes);
+      if (s.hourlyTargetCents !== null && cardMinutes !== null && cardMinutes >= 5 &&
+          pay * 60 < s.hourlyTargetCents * cardMinutes) {
+        out.hourlyCents = Math.round(pay * 60 / cardMinutes);
         out.notice = '≤$' + Math.floor(out.hourlyCents / 100) + '/hr · Decline';
-        out.detail = 'Below ' + dollars(s.hourlyTargetCents) + '/hr on the order alone (' + summary.appMinutes + ' min), before the drive back';
+        out.detail = 'Below ' + dollars(s.hourlyTargetCents) + '/hr on the order alone (' + cardMinutes + ' min), before the drive back';
         out.tone = 'bad';
         return out;
       }
@@ -808,7 +840,7 @@
     // Minutes the same way: the credit cancels at most the return drive's minutes.
     const creditMinutes = credit && route && valid(route.creditMinutes)
       ? Math.min(Math.round(route.creditMinutes * credit / rawCredit), valid(route.returnMinutes) ? route.returnMinutes : Infinity) : 0;
-    const trip = tripMinutes(summary, route, ret, rawCredit, s.timeFactors && s.timeFactors[summary.platform]);
+    const trip = tripMinutes(summary, route, ret, rawCredit, s.timeFactors && s.timeFactors[summary.platform], wait.minutes);
     if (trip.note) out.tripTimeNote = trip.note;
     out.tripMinutes = trip.minutes; out.tripMinutesEstimated = trip.minutes === null ? null : trip.estimated;
     if (valid(route.returnMinutes)) out.returnMinutes = route.returnMinutes;
@@ -906,7 +938,9 @@
     if (u) out.uncertaintyMilliMiles = u;
     const milesOk = pay * 1000 >= s.centsPerMile * (effective + u);
     const milesBad = !bound && pay * 1000 < s.centsPerMile * Math.max(500, added - u);
-    const trip = tripMinutes(summary, route, ret, credit || 0, s.timeFactors && s.timeFactors[summary.platform]);
+    const wait = storeWait(summary, s);
+    if (wait.minutes) { out.storeWaitMinutes = wait.minutes; out.storeWaitStores = wait.stores; }
+    const trip = tripMinutes(summary, route, ret, credit || 0, s.timeFactors && s.timeFactors[summary.platform], wait.minutes);
     if (trip.note) out.tripTimeNote = trip.note;
     out.tripMinutes = trip.minutes; out.tripMinutesEstimated = trip.minutes === null ? null : trip.estimated;
     if (valid(route.returnMinutes)) out.returnMinutes = route.returnMinutes;
@@ -965,10 +999,11 @@
     if (pay * 1000 < s.centsPerMile * Math.max(500, outbound)) {
       return { word: 'Decline', notice: perMile(pay, Math.max(500, outbound)) + ' · Decline' };
     }
-    // Certain hourly failure: even the card's own time, with no return at all, is too slow.
-    if (s.hourlyTargetCents !== null && summary.appMinutes !== null && summary.appMinutes >= 5 &&
-        pay * 60 / summary.appMinutes < s.hourlyTargetCents) {
-      return { word: 'Decline', notice: '≤$' + Math.floor(pay * 60 / summary.appMinutes / 100) + '/hr · Decline' };
+    // Certain hourly failure: even the card's own time (plus a restaurant's usual extra wait), with no return at all, is
+    // too slow.
+    const card = summary.appMinutes !== null ? summary.appMinutes + storeWait(summary, s).minutes : null;
+    if (s.hourlyTargetCents !== null && card !== null && card >= 5 && pay * 60 / card < s.hourlyTargetCents) {
+      return { word: 'Decline', notice: '≤$' + Math.floor(pay * 60 / card / 100) + '/hr · Decline' };
     }
     if (known && pay * 1000 >= s.centsPerMile * 2 * outbound) {
       // No number here: the worst-case floor (pay ÷ 2 × app miles) read as the real rate and confused the user (Oct 14).
@@ -1232,7 +1267,7 @@
     return null;
   }
 
-  const api = { READER_VERSION, VERSIONS, VERIFIED_LAYOUTS, readScreen, readStatus, offerLike, trackSightings, toOffer, verdict, summarize, withReturn, preliminary, shouldUpdate, slug, hash,
+  const api = { READER_VERSION, VERSIONS, VERIFIED_LAYOUTS, storeKey, readScreen, readStatus, offerLike, trackSightings, toOffer, verdict, summarize, withReturn, preliminary, shouldUpdate, slug, hash,
     preliminaryJSON: (summaryJSON, contextJSON, settingsJSON) =>
       JSON.stringify(preliminary(JSON.parse(summaryJSON), JSON.parse(contextJSON || '{}'), root.Copilot, JSON.parse(settingsJSON || '{}'))),
     readStatusJSON: linesJSON => JSON.stringify(readStatus(JSON.parse(linesJSON))),

@@ -5,7 +5,7 @@
   const PLATFORMS = ['doordash', 'uber_eats', 'grubhub'];
   const DEFAULTS = Object.freeze({ centsPerMile: 100, minimumOfferCents: null,
     hourlyTargetCents: null, hourlyBasis: 'gross', vehicleCentsPerMile: null, timeFactors: null, returnTimeShare: 1, slowBar: null, standard: null,
-    headingHome: false });
+    headingHome: false, storeWaits: null });
   const has = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
   const clone = value => JSON.parse(JSON.stringify(value));
   function assert(ok, message) { if (!ok) throw new Error(message); }
@@ -59,6 +59,11 @@
       object(s.slowBar, 'slowBar');
       integer(s.slowBar.hourlyCents, 'slowBar.hourlyCents', 0, 1000000);
       integer(s.slowBar.centsPerMile, 'slowBar.centsPerMile', 1, 10000);
+    }
+    // Restaurants slow at this meal time (user, Oct 28; core/shift.js storeWaits): { "<storeKey>": extra minutes }.
+    if (s.storeWaits !== null) {
+      object(s.storeWaits, 'storeWaits');
+      for (const k of Object.keys(s.storeWaits)) integer(s.storeWaits[k], 'storeWaits.' + k, 0, 30);
     }
     // Heading home (user, Oct 28): the next offer is the last one, judged on what it adds to the drive home.
     assert(typeof s.headingHome === 'boolean', 'headingHome must be a boolean');

@@ -12,6 +12,8 @@ enum TimingStore {
         var returnShare: Double = 1
         /// Orders the share was learned from.
         var returnShareOrders: Int = 0
+        /// Restaurants slow at lunch or dinner (user, Oct 28; core/shift.js `storeWaits`): meal → store key → extra minutes.
+        var storeWaits: [String: [String: Int]]? = nil
     }
 
     private static let fileName = "timing.json"
@@ -60,6 +62,13 @@ enum TimingStore {
         if let bar = SlowHours.barJSON() { extra += ",\"slowBar\":" + bar }
         // The last order, judged on what it adds to the drive home (Oct 28).
         if ReturnDestinationStore.headingHome { extra += ",\"headingHome\":true" }
+        // Restaurants slow at this meal time (Oct 28): lunch 10–15, dinner 15–22, as core/shift.js storeWaits.
+        let hour = Calendar.current.component(.hour, from: Date())
+        let meal = hour >= 10 && hour < 15 ? "lunch" : hour >= 15 && hour < 22 ? "dinner" : nil
+        if let meal, let waits = timing.storeWaits?[meal], !waits.isEmpty,
+           let data = try? JSONEncoder().encode(waits), let text = String(data: data, encoding: .utf8) {
+            extra += ",\"storeWaits\":" + text
+        }
         return extra.isEmpty ? rules.settingsJSON : String(rules.settingsJSON.dropLast()) + extra + "}"
     }
 }

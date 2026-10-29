@@ -173,6 +173,12 @@ final class AppModel: ObservableObject {
             timing.returnShare = share.share
             timing.returnShareOrders = share.orders
         }
+        // Restaurants slow at lunch or dinner, from your own pickups (Oct 28).
+        let waitInput = "{\"trips\":\(ShiftEngine.json(encodable: trips.filter { !DemoData.isDemo($0.id) })),\"offsetMinutes\":\(ShiftEngine.offsetMinutes)}"
+        struct Waits: Decodable { let lunch: [String: Int]; let dinner: [String: Int] }
+        if let waits = ShiftEngine.decode(Waits.self, ShiftEngine.call("storeWaitsJSON", [waitInput])) {
+            timing.storeWaits = ["lunch": waits.lunch, "dinner": waits.dinner]
+        }
         TimingStore.save(timing)
         // Slow hours (Oct 26): how often an offer met the rules at each weekday and meal time → a tier per slot.
         let slotInput = "{\"offers\":\(ShiftEngine.json(encodable: offers.filter { !DemoData.isDemo($0.offerId) })),"
