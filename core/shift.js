@@ -1289,8 +1289,12 @@
    * dinner"). From your own pickups (arrived → left; unfinished ones left out), per store name and meal time (lunch
    * 10–15, dinner 15–22, as slow hours): the expected wait, pulled toward your usual wait (the median of all your waits,
    * else 4 min) as if one more visit had been usual — one long wait counts, but not fully. The extra over your usual wait
-   * is what an offer's own time doesn't allow for. Kept when 2+ minutes, at most 20; the 12 largest.
+   * is what an offer's own time doesn't allow for. Kept when the store has 3+ pickups at that meal time and the extra is
+   * 2+ minutes, at most 20; the 12 largest.
    * Returns { lunch: { "<storeKey>": minutes }, dinner: { … }, usualMinutes, stores: [{ name, meal, visits, extra }] }. */
+  // Separate pickups a store needs at a meal time before its wait counts (user, Oct 28: "the waits need more data than
+  // what I have" — most stores had one visit). Until then the waits are only collected.
+  const MIN_WAIT_VISITS = 3;
   function storeWaits(input) {
     const off = input.offsetMinutes || 0;
     const visits = storeVisits(input.trips).filter(v => !v.censored && valid(v.seconds) && v.seconds >= 30);
@@ -1311,7 +1315,7 @@
     const stores = Object.values(groups).map(g => {
       const expected = (g.minutes.reduce((a, b) => a + b, 0) + usual) / (g.minutes.length + 1);
       return { name: g.name, meal: g.meal, visits: g.minutes.length, extra: Math.min(20, Math.round(expected - usual)) };
-    }).filter(g => g.extra >= 2).sort((a, b) => b.extra - a.extra || b.visits - a.visits).slice(0, 12);
+    }).filter(g => g.visits >= MIN_WAIT_VISITS && g.extra >= 2).sort((a, b) => b.extra - a.extra || b.visits - a.visits).slice(0, 12);
     const out = { lunch: {}, dinner: {}, usualMinutes: Math.round(usual * 10) / 10, stores };
     for (const g of stores) out[g.meal][String(storeKey(g.name))] = g.extra;
     return out;
