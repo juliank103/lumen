@@ -15,7 +15,7 @@ struct HomeOfferCard: View {
 
     /// An icon for the why line, from its first words.
     static func whyIcon(_ why: String) -> String {
-        why.hasPrefix("Heading home") || why.hasPrefix("On your way home") ? "house" : why.hasPrefix("On the way back") ? "arrow.triangle.turn.up.right.diamond" : why.hasPrefix("Too slow") || why.hasPrefix("Time") ? "clock"
+        why.hasPrefix("Heading home") || why.hasPrefix("On your way home") ? "house" : why.hasPrefix("On the way back") || why.hasPrefix("Counts ") ? "arrow.triangle.turn.up.right.diamond" : why.hasPrefix("Too slow") || why.hasPrefix("Time") ? "clock"
             : why.hasPrefix("Long drive back") || why.hasPrefix("Out of the way") ? "arrow.uturn.backward" : why.contains("map pin") ? "mappin"
             : why.hasPrefix("Drop-off not found") ? "mappin.slash" : why.hasPrefix("Numbers") ? "exclamationmark.triangle"
             : why.contains("town center") || why.contains("drop-off street") ? "road.lanes" : "info.circle"
