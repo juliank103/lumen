@@ -130,6 +130,37 @@ struct Trip: Codable, Identifiable, Equatable {
     var orders: [Order]
     var steps: [Step]
     var endedAt: Date?
+    /// The driver's own order for the stops still ahead (keys from `storeKey`/`dropKey`), set with Reorder stops. Nil:
+    /// the natural order in `ahead`.
+    var route: [String]? = nil
+
+    static func storeKey(_ offerId: String, _ stop: Int) -> String { "s|\(offerId)|\(stop)" }
+    static func dropKey(_ offerId: String, _ n: Int) -> String { "d|\(offerId)|\(n)" }
+
+    /// The stops not reached yet, in the order you'll drive them. Naturally: the drop-offs of orders already picked up
+    /// first (user, Oct 30: an add-on accepted 5 minutes from the Kyuramen drop-off was put before it), then stores, then
+    /// the other drop-offs, each in the order the orders came in. The driver's `route` overrides that; stops it doesn't
+    /// name (an order accepted after reordering) keep their natural place after the named ones.
+    var ahead: [String] {
+        var carrying: [String] = [], stores: [String] = [], later: [String] = []
+        for order in orders where order.ended == nil {
+            for stop in order.stores.indices where !has(.arrivedStore, order.offerId, stop) && !has(.leftStore, order.offerId, stop) {
+                stores.append(Self.storeKey(order.offerId, stop))
+            }
+            let pickedUp = order.stores.indices.allSatisfy { has(.leftStore, order.offerId, $0) }
+            let reached = max(count(.arrivedDropoff, order.offerId), count(.delivered, order.offerId))
+            for n in reached..<max(reached, order.dropoffs) {
+                if pickedUp { carrying.append(Self.dropKey(order.offerId, n)) } else { later.append(Self.dropKey(order.offerId, n)) }
+            }
+        }
+        let natural = carrying + stores + later
+        guard let route, !route.isEmpty else { return natural }
+        var rank: [String: Int] = [:]
+        for (i, key) in route.enumerated() where rank[key] == nil { rank[key] = i }
+        return natural.enumerated().sorted { a, b in
+            (rank[a.element] ?? route.count + a.offset, a.offset) < (rank[b.element] ?? route.count + b.offset, b.offset)
+        }.map(\.element)
+    }
 
     func has(_ kind: StepKind, _ offerId: String, _ stop: Int) -> Bool {
         steps.contains { $0.kind == kind && $0.offerId == offerId && $0.stop == stop }
@@ -175,7 +206,13 @@ struct Trip: Codable, Identifiable, Equatable {
                 arriveDrop.append(TripAction(kind: .arrivedDropoff, offerId: order.offerId, stop: arrived, label: "Arrived at \(name(arrived))"))
             }
         }
-        return leave + deliver + arriveStore + arriveDrop
+        // Arrivals in the order of the stops ahead (the next one you'll drive to first).
+        let order = ahead
+        let position = { (a: TripAction) -> Int in
+            order.firstIndex(of: a.kind == .arrivedStore ? Self.storeKey(a.offerId, a.stop) : Self.dropKey(a.offerId, a.stop)) ?? order.count
+        }
+        let arrivals = (arriveStore + arriveDrop).enumerated().sorted { (position($0.element), $0.offset) < (position($1.element), $1.offset) }.map(\.element)
+        return leave + deliver + arrivals
     }
 }
 
@@ -390,6 +427,15 @@ final class TripStore: ObservableObject {
         let minimum = max(1, trip.count(.arrivedDropoff, offerId))
         trip.orders[index].dropoffs = min(8, max(minimum, trip.orders[index].dropoffs + delta))
         if addStore, trip.orders[index].stores.count < 6 { trip.orders[index].stores.append("Store \(trip.orders[index].stores.count + 1)") }
+        active = trip
+        commit(before: before, historyCount: historyCount, events: [])
+    }
+
+    /// Reorder stops: the driver's order for the stops ahead (nil goes back to the natural order).
+    func setRoute(_ keys: [String]?) {
+        guard var trip = active else { return }
+        let before = active, historyCount = history.count
+        trip.route = keys
         active = trip
         commit(before: before, historyCount: historyCount, events: [])
     }

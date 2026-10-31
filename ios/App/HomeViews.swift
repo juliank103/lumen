@@ -192,6 +192,7 @@ struct HomeWaiting: View {
 struct HomeOnOrder: View {
     @ObservedObject private var store = TripStore.shared
     let trip: Trip
+    @State private var reordering = false
 
     private var predictedHourly: Int? {
         let hours = trip.orders.compactMap { o -> Double? in
@@ -206,7 +207,10 @@ struct HomeOnOrder: View {
     private func describe(_ action: TripAction) -> (place: String, verb: String) {
         let order = trip.orders.first { $0.offerId == action.offerId }
         let store = order.flatMap { $0.stores.indices.contains(action.stop) ? $0.stores[action.stop] : nil } ?? "Store"
-        let dropoff = (order?.dropoffs ?? 1) > 1 ? "Drop-off \(action.stop + 1)" : "Drop-off"
+        // With two orders on, say whose drop-off it is.
+        var whose = ""
+        if trip.orders.filter({ $0.ended == nil }).count > 1, let order { whose = " · " + order.shortName }
+        let dropoff = ((order?.dropoffs ?? 1) > 1 ? "Drop-off \(action.stop + 1)" : "Drop-off") + whose
         switch action.kind {
         case .arrivedStore: return (store, "Arrived")
         case .leftStore: return (store, "Picked up")
@@ -237,15 +241,63 @@ struct HomeOnOrder: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(next.label)
                 let others = Array(trip.actions.dropFirst())
-                if !others.isEmpty {
-                    Menu {
-                        ForEach(others) { action in Button(action.label) { store.perform(action) } }
-                    } label: {
-                        Text("Other steps").font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity).frame(height: 44)
+                HStack {
+                    if !others.isEmpty {
+                        Menu {
+                            ForEach(others) { action in Button(action.label) { store.perform(action) } }
+                        } label: {
+                            Text("Other steps").font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity).frame(height: 44)
+                        }
+                    }
+                    // Change the order of the stops ahead (user, Oct 30: "I need to be able to adjust the progress bar").
+                    if trip.ahead.count > 1 {
+                        Button { reordering = true } label: {
+                            Text("Reorder stops").font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity).frame(height: 44)
+                        }
                     }
                 }
             }
         }
+        .sheet(isPresented: $reordering) { ReorderStopsSheet(trip: trip) }
+    }
+}
+
+/// The stops still ahead as a list to drag into the order you'll drive them; Reset goes back to __APP_NAME__'s own order.
+struct ReorderStopsSheet: View {
+    @ObservedObject private var store = TripStore.shared
+    @Environment(\.dismiss) private var dismiss
+    let trip: Trip
+    @State private var keys: [String] = []
+
+    private func name(_ key: String) -> String {
+        let parts = key.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 3, let n = Int(parts[2]), let order = trip.orders.first(where: { $0.offerId == parts[1] }) else { return key }
+        if parts[0] == "s" { return order.stores.indices.contains(n) ? order.stores[n] : "Store" }
+        return (order.dropoffs > 1 ? "Drop-off \(n + 1)" : "Drop-off") + " · " + order.shortName
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(keys, id: \.self) { key in
+                    Label(name(key), systemImage: key.hasPrefix("s|") ? "bag" : "mappin.and.ellipse")
+                }
+                .onMove { keys.move(fromOffsets: $0, toOffset: $1) }
+            }
+            .environment(\.editMode, .constant(.active))
+            .navigationTitle("Reorder stops")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Reset") { store.setRoute(nil); dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { store.setRoute(keys); dismiss() }.bold()
+                }
+            }
+            .onAppear { keys = (store.active ?? trip).ahead }
+        }
+        .presentationDetents([.medium, .large])
     }
 }
 
@@ -431,10 +483,12 @@ struct HomeTripCard: View {
                     }
                     Spacer()
                     if !multiApp, let predicted = predictedHourly {
+                        // Never wraps (screen, Oct 30: "$5 / 3/ / hr / pre- / dict- / ed"); the store names shorten instead.
                         VStack(alignment: .trailing, spacing: 0) {
                             Text(TripFormat.hourly(predicted)).font(.title3.weight(.bold))
                             Text("predicted").font(.caption).foregroundStyle(Theme.secondaryText)
                         }
+                        .lineLimit(1).fixedSize().layoutPriority(1)
                     }
                     // Undo as a symbol on the card itself (user, Oct 23), next to ⋯ on the first row.
                     if index == 0 { UndoButton(trip: trip) }

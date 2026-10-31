@@ -52,6 +52,20 @@ final class TripTests: XCTestCase {
         XCTAssertTrue(trip.actions.contains { $0.kind == .arrivedDropoff && $0.offerId == "a" })
     }
 
+    func testAnAddOnOnTheWayToADropoffGoesAfterIt() {
+        // Oct 30: on the way to the Kyuramen drop-off, an add-on from Pizzeria Deville was accepted.
+        var trip = Trip(id: "t", startedAt: t0, orders: [order("a", stores: ["Kyuramen"])], steps: [], endedAt: nil)
+        trip.steps += [step(.arrivedStore, "a", 0, 3), step(.leftStore, "a", 0, 8)]
+        trip.orders.append(order("b", stores: ["Pizzeria Deville"]))
+        XCTAssertEqual(trip.ahead, [Trip.dropKey("a", 0), Trip.storeKey("b", 0), Trip.dropKey("b", 0)])
+        XCTAssertEqual(trip.actions.first?.kind, .arrivedDropoff)
+        XCTAssertEqual(trip.actions.first?.offerId, "a")
+        // The driver's own order wins.
+        trip.route = [Trip.storeKey("b", 0), Trip.dropKey("a", 0)]
+        XCTAssertEqual(trip.ahead, [Trip.storeKey("b", 0), Trip.dropKey("a", 0), Trip.dropKey("b", 0)])
+        XCTAssertEqual(trip.actions.first?.label, "Arrived at Pizzeria Deville")
+    }
+
     func testTwoDropoffsCountSeparately() {
         var trip = Trip(id: "t", startedAt: t0, orders: [order("a", stores: ["Olive Garden"], dropoffs: 2)], steps: [], endedAt: nil)
         trip.steps += [step(.arrivedStore, "a", 0, 3), step(.leftStore, "a", 0, 8), step(.arrivedDropoff, "a", 0, 15), step(.delivered, "a", 0, 17)]

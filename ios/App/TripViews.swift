@@ -74,9 +74,11 @@ struct OrderCheckpoints: View {
     init(trip: Trip) {
         let all = trip.orders.flatMap { Self.stops(trip, $0) }
         let reached = all.filter { $0.stage.done }.sorted { ($0.at ?? .distantPast) < ($1.at ?? .distantPast) }
-        // Stores before drop-offs, otherwise in the orders' own order (a stable sort).
+        // The rest in the order you'll drive them (`Trip.ahead`: food you're carrying first, or your own order).
+        let order = trip.ahead
+        let rank = { (stop: Stop) -> Int in order.firstIndex(of: stop.key) ?? order.count }
         let ahead = all.enumerated().filter { !$0.element.stage.done }
-            .sorted { ($0.element.store ? 0 : 1, $0.offset) < ($1.element.store ? 0 : 1, $1.offset) }.map(\.element)
+            .sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }.map(\.element)
         stages = Self.numbered((reached + ahead).map(\.stage))
     }
 
@@ -91,7 +93,7 @@ struct OrderCheckpoints: View {
         }
     }
 
-    private struct Stop { let stage: Stage; let at: Date?; let store: Bool }
+    private struct Stop { let stage: Stage; let at: Date?; let store: Bool; let key: String }
 
     private static func stops(_ trip: Trip, _ order: Trip.Order) -> [Stop] {
         let done = order.completed
@@ -99,14 +101,16 @@ struct OrderCheckpoints: View {
         for (stop, store) in order.stores.enumerated() {
             let left = done || trip.has(.leftStore, order.offerId, stop)
             let arrival = trip.steps.first { $0.offerId == order.offerId && $0.stop == stop && ($0.kind == .arrivedStore || $0.kind == .leftStore) }?.at
-            list.append(Stop(stage: Stage(label: store, done: done || arrival != nil || left, left: left), at: arrival ?? (done ? order.endedAt : nil), store: true))
+            list.append(Stop(stage: Stage(label: store, done: done || arrival != nil || left, left: left), at: arrival ?? (done ? order.endedAt : nil), store: true,
+                             key: Trip.storeKey(order.offerId, stop)))
         }
         let arrivals = trip.steps.filter { $0.offerId == order.offerId && ($0.kind == .arrivedDropoff || $0.kind == .delivered) }.map(\.at).sorted()
         let delivered = trip.count(.delivered, order.offerId)
         for d in 0..<max(1, order.dropoffs) {
             let arrived = done || max(trip.count(.arrivedDropoff, order.offerId), delivered) > d
             let at = arrivals.indices.contains(d) ? arrivals[d] : (done ? order.endedAt : nil)
-            list.append(Stop(stage: Stage(label: "Drop-off", done: arrived, left: done || delivered > d), at: at, store: false))
+            list.append(Stop(stage: Stage(label: "Drop-off", done: arrived, left: done || delivered > d), at: at, store: false,
+                             key: Trip.dropKey(order.offerId, d)))
         }
         return list
     }
