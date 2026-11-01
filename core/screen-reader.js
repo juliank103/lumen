@@ -757,8 +757,14 @@
     if (/· Accept( \(time unknown\))?$/.test(notice)) {
       // Not "home": the return spot is whatever is chosen (user, Oct 29: "confusing when I'm not going home and the return
       // location is set to __HOME_NAME__"). Home wording is for Heading home only.
-      if ((out.creditMilliMiles || 0) >= 1000 && out.onTheWay) return 'On the way back · saves ' + miles1(out.creditMilliMiles) + ' mi';
-      if ((out.creditMilliMiles || 0) >= 1000 && out.effectiveMilliMiles) return 'Counts ' + miles1(out.effectiveMilliMiles) + ' mi more than driving back';
+      // The trip's miles, then how the drive back changes compared with driving back from here (user, Oct 31: "Counts
+      // 5.1 mi more than driving back" confused — it was the whole trip, with a drive back no longer than from here).
+      if ((out.creditMilliMiles || 0) >= 1000 && out.backFromHereMilliMiles && ret !== null && ret !== undefined) {
+        const extra = ret - out.backFromHereMilliMiles, trip = 'Trip ' + miles1(outbound) + ' mi';
+        if (extra >= 300) return trip + ' + ' + miles1(extra) + ' mi longer drive back';
+        if (extra <= -500) return 'On the way back · ends ' + miles1(-extra) + ' mi closer';
+        return trip + ' · drive back about the same';
+      }
       if (/time unknown/.test(notice)) return 'Time unknown · miles pass';
       if (out.tripMinutesEstimated) return 'Time guessed · ' + (source() || 'miles pass');
       return source();
@@ -797,7 +803,7 @@
     // On the way only when the drop-off ends at least half a mile closer to the return spot than you are now; otherwise the
     // credit just means the drive back you'd make anyway isn't charged to the offer (user, Oct 30: a Greenville drop-off
     // north, away from __HOME_NAME__, said "On the way back").
-    if (credit && ret !== null) out.onTheWay = rawCredit >= ret + 500;
+    if (credit && ret !== null) { out.onTheWay = rawCredit >= ret + 500; out.backFromHereMilliMiles = rawCredit; }
     const creditText = credit ? ' (minus ' + miles1(credit) + ' mi you were driving back anyway)' : '';
     if (ret === null) {
       // The order alone, before any drive back, is under the hourly target: Decline, not "Accept if return ≤ …" (Oct 24:
