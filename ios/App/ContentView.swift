@@ -81,6 +81,7 @@ struct DashTab: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     SetupHealthCard(issues: model.setupIssues)
+                    if model.readerStuck { ReaderStuckCard() }
                     TimelineView(.periodic(from: .now, by: 5)) { context in
                         VStack(alignment: .leading, spacing: 16) {
                             // A new offer shows even on an order (stacking); the trip stays below it.
@@ -109,8 +110,8 @@ struct DashTab: View {
             }
             .background(Theme.ground.ignoresSafeArea())
             .safeAreaInset(edge: .bottom) {
-                if trips.active == nil && (shifts.current == nil || !model.screenCaptured) {
-                    DashBottomBar(trip: nil, reading: model.screenCaptured, destination: model.destination.name, rules: model.rules)
+                if trips.active == nil && (shifts.current == nil || !model.isReading) {
+                    DashBottomBar(trip: nil, reading: model.isReading, destination: model.destination.name, rules: model.rules)
                 }
             }
             .navigationTitle("__APP_NAME__")
@@ -181,6 +182,27 @@ struct DashBottomBar: View {
         }
         .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 8)
         .background(Theme.ground)
+    }
+}
+
+/// Screen recording is on but the reader stopped reading (user, Nov 2): stop it and start it again. Only the system
+/// sheet (or the red recording dot at the top of the screen) can stop a broadcast; the app can't.
+struct ReaderStuckCard: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Reader stopped reading", systemImage: "exclamationmark.triangle.fill")
+                .font(.headline).foregroundStyle(Theme.neonYellow)
+            Text("Stop the screen recording, then start it again.").font(.subheadline).foregroundStyle(Theme.secondaryText)
+            Button { BroadcastLauncher.shared.open() } label: {
+                Text("Stop recording").font(.headline.weight(.bold)).foregroundStyle(.white)
+                    .frame(maxWidth: .infinity).frame(height: 50)
+                    .background(Theme.purple, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            Text("Or tap the red dot at the top of the screen → Stop.").font(.caption).foregroundStyle(Theme.secondaryText)
+        }
+        .padding(18)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 }
 

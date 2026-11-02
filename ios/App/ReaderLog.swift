@@ -39,7 +39,16 @@ final class ReaderLog: NSObject, ObservableObject, CXCallObserverDelegate {
         save()
     }
 
-    func frameRead(at now: Date = Date()) { lastFrameAt = now }
+    func frameRead(at now: Date = Date()) { lastFrameAt = now; heardAt = now }
+
+    /// The last time the reader said anything that proves it's working: started, read a frame, or posted an offer.
+    /// iOS's screen-capture flag stays on for a broadcast whose reader has stopped (user, Nov 2: "stuck with the reader
+    /// set to active, but not actually reading"), so the app trusts the reader only after hearing from it.
+    private(set) var heardAt: Date?
+    func heard(at now: Date = Date()) { heardAt = now }
+    func readerGone() { heardAt = nil }
+    /// Heard from in the last 30 s (it reads a frame every ~2 s while the screen changes; __APP_NAME__'s clocks change it).
+    func readerAlive(at now: Date = Date()) -> Bool { heardAt.map { now.timeIntervalSince($0) < 30 } ?? false }
 
     /// Seconds since the reader last read a frame, for the entries ("last frame 4 s before").
     func frameAge(at now: Date = Date()) -> String {

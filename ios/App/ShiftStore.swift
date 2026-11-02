@@ -75,14 +75,21 @@ final class ShiftStore: ObservableObject {
     // MARK: Lifecycle
 
     /// Set by End shift until screen reading starts again: offers still arriving from a reader that didn't stop don't
-    /// start a new shift (user, Oct 23: a 2-minute shift after every End shift).
-    private var endedByDriver = false
+    /// start a new shift (user, Oct 23: a 2-minute shift after every End shift). Kept across app launches (Nov 2: after
+    /// closing and reopening, a stuck reader started a new shift right away).
+    private var endedByDriver = UserDefaults.standard.bool(forKey: "shiftEndedByDriver") {
+        didSet { UserDefaults.standard.set(endedByDriver, forKey: "shiftEndedByDriver") }
+    }
 
     /// A new screen broadcast: a new shift may start.
     func readingStarted(at now: Date = Date()) {
         endedByDriver = false
         startIfNeeded(at: now)
     }
+
+    /// Screen recording is off: the next reader is a new one, so it may start a shift again (its "started" signal is
+    /// missed when __APP_NAME__ isn't running).
+    func captureOff() { if endedByDriver { endedByDriver = false } }
 
     func startIfNeeded(at now: Date = Date()) {
         guard !PreviewData.isActive, !endedByDriver else { return }

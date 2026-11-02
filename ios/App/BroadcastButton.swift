@@ -41,7 +41,14 @@ final class BroadcastLauncher {
         return Bundle.main.object(forInfoDictionaryKey: "CaptureExtensionIdentifier") as? String
     }
 
+    /// When the broadcast sheet was last opened: the reader gets a moment to start before it counts as stuck.
+    private(set) var openedAt = Date.distantPast
+
     func open() {
+        openedAt = Date()
+        // In the reader log, so an export shows whether the reader loaded and started after the sheet (Nov 2: starting
+        // often needs several tries).
+        MainActor.assumeIsolated { ReaderLog.shared.note("broadcast_sheet_opened", UIScreen.main.isCaptured ? "screen captured" : nil) }
         guard let button = Self.firstButton(in: picker) else { return }
         button.sendActions(for: .allTouchEvents)
     }

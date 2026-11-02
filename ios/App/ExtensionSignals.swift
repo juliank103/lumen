@@ -52,7 +52,7 @@ final class ExtensionSignals: ObservableObject {
             MainActor.assumeIsolated { ReaderLog.shared.note("reader_loaded") }
         case .started:
             startedAt = now; finishedAt = nil; readerFailed = false
-            MainActor.assumeIsolated { ReaderLog.shared.note("reader_started") }
+            MainActor.assumeIsolated { ReaderLog.shared.note("reader_started"); ReaderLog.shared.heard(at: now) }
             // The reader just started: hand it the training switch (it may have missed the flip) and the settings —
             // rules and the learned drive-back share — as signals (Oct 27: the bridge never delivered them).
             TrainingCapture.republish()
@@ -63,6 +63,7 @@ final class ExtensionSignals: ObservableObject {
             MainActor.assumeIsolated { ReaderLog.shared.frameRead(at: now) }
         case .offer:
             offers += 1
+            MainActor.assumeIsolated { ReaderLog.shared.heard(at: now) }
             NotificationCenter.default.post(name: Self.offerReceived, object: nil)
         case .readerFailed:
             readerFailed = true
@@ -77,6 +78,7 @@ final class ExtensionSignals: ObservableObject {
             finishedAt = now
             MainActor.assumeIsolated {
                 ReaderLog.shared.note("reader_finished", ReaderLog.shared.frameAge(at: now))
+                ReaderLog.shared.readerGone()
                 ReadingMonitor.shared.readingFinished()
                 ShiftStore.shared.readingStopped()
             }

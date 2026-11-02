@@ -39,6 +39,9 @@ final class AppModel: ObservableObject {
         timer = Timer.publish(every: 3, on: .main, in: .common).autoconnect().sink { [weak self] _ in
             Task { await self?.refresh() }
         }
+        activeObserver = NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification).sink { [weak self] _ in
+            Task { @MainActor in self?.activeSince = Date() }
+        }
         // The reader just posted an offer: pick it up now (Dynamic Island verdict) instead of at the next tick.
         offerObserver = NotificationCenter.default.publisher(for: ExtensionSignals.offerReceived).sink { [weak self] _ in
             Task { await self?.refresh() }
@@ -87,14 +90,26 @@ final class AppModel: ObservableObject {
         UserDefaults.standard.set(Array(dismissed.suffix(500)), forKey: "dismissedOffers")
     }
 
-    var isReading: Bool {
-        screenCaptured && (probe.map { $0.status == "observing" } ?? true)
-    }
+    /// Reading only when the reader has been heard from lately, not just because iOS says the screen is being captured:
+    /// that flag stays on for a broadcast whose reader stopped (user, Nov 2: "stuck with the reader set to active, but
+    /// not actually reading … a shift immediately starts because it thinks the reader's on").
+    var isReading: Bool { screenCaptured && (PreviewData.isActive || readerHeard) }
+    /// Updated on every refresh (every 3 s) so the views follow the reader's state.
+    @Published private(set) var readerHeard = false
+
+    /// Capture is on but the reader has said nothing for 30 s since __APP_NAME__ came to the front or the broadcast sheet
+    /// opened: the reader is stuck and the screen recording needs stopping and starting again.
+    @Published private(set) var readerStuck = false
+
+    /// When __APP_NAME__ last came to the front (the reader's frames reach the app only while it runs).
+    private var activeSince = Date()
+    private var activeObserver: AnyCancellable?
+    private var stuckLogged = false
 
     var statusText: String {
         if !screenCaptured { return "Not reading offers" }
-        if let probe, let last = probe.lastAnalyzedAt, Date().timeIntervalSince(last) > 12 { return "Waiting for the screen" }
-        return "Reading offers"
+        if isReading { return "Reading offers" }
+        return readerStuck ? "Reader stuck" : "Starting reader…"
     }
 
     /// Pull down to refresh (user, Oct 27: "see updates faster"): offers, the shift's totals, and the reader's health now.
@@ -141,7 +156,16 @@ final class AppModel: ObservableObject {
         }
         if archive.count != offers.count || archive.last?.id != offers.last?.id { offers = archive }
         journalCount = OfferJournal.readShared().count
-        if screenCaptured { ShiftStore.shared.startIfNeeded() }
+        readerHeard = ReaderLog.shared.readerAlive()
+        readerStuck = !PreviewData.isActive && screenCaptured && !readerHeard
+            && Date().timeIntervalSince(max(activeSince, BroadcastLauncher.shared.openedAt)) > 30
+        // A shift starts on its own only for a reader that's really reading.
+        if isReading { ShiftStore.shared.startIfNeeded() }
+        if !screenCaptured && !PreviewData.isActive { ShiftStore.shared.captureOff() }
+        if readerStuck != stuckLogged {
+            stuckLogged = readerStuck
+            if readerStuck { ReaderLog.shared.note("reader_stuck", ReaderLog.shared.frameAge()) }
+        }
         TripActivityController.offer = currentOffer
         if Date().timeIntervalSince(readerHealthAt) > 300 {
             readerHealthAt = Date()
