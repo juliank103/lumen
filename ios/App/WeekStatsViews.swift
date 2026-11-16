@@ -44,9 +44,9 @@ struct StatsTab: View {
                             .dasherCard()
                         }
                         VStack(spacing: 0) {
-                            MetricTiles(week: stats.week, selection: $metric)
+                            MetricTiles(week: stats.week, selection: $metric, buckets: stats.days)
                             Picker("Chart", selection: $chartByApp) {
-                                Text("By day").tag(false)
+                                Text(week.span == .year ? "By month" : "By day").tag(false)
                                 Text("By app").tag(true)
                             }
                             .pickerStyle(.segmented)
@@ -316,6 +316,9 @@ enum ChartMetric: String, CaseIterable, Identifiable {
 struct MetricTiles: View {
     let week: RangeMetrics
     @Binding var selection: ChartMetric
+    /// The chart's days (months for a year): the deduction adds up each one at its own date's rate (a year averaged
+    /// 72.5¢ and 76¢ over all its days though the miles were all in November).
+    var buckets: [RangeMetrics] = []
     // Like Gridwise (user, Oct 16): earnings, expenses, net, hours, miles, the mileage deduction, orders, deadhead.
     private let metrics: [ChartMetric] = [.earnings, .expenses, .net, .hours, .miles, .deduction, .orders, .deadhead]
 
@@ -340,7 +343,7 @@ struct MetricTiles: View {
                 Capsule().fill(selected ? Theme.purple : Color.clear).frame(height: 4)
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(metric.tile(week)).font(.title3.weight(.semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
+                        Text(value(metric)).font(.title3.weight(.semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
                         Text(subtitle(metric)).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                     }
                     Spacer(minLength: 4)
@@ -353,6 +356,11 @@ struct MetricTiles: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    private func value(_ metric: ChartMetric) -> String {
+        guard metric == .deduction, !buckets.isEmpty else { return metric.tile(week) }
+        return ShiftFormat.money(buckets.reduce(0) { $0 + ChartMetric.deductionCents($1) })
     }
 
     private func subtitle(_ metric: ChartMetric) -> String {
