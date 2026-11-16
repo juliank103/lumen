@@ -102,11 +102,25 @@ struct WeekStats: Decodable, Equatable {
     let lenses: Lenses
 }
 
-/// The selected week (Monday–Sunday, phone's calendar) and its stats. Never in the future.
+/// Week, month or year on the Earnings page (user, Nov 15: "a monthly and yearly earnings screen that has the same stats
+/// as the regular earnings screen").
+enum EarningsSpan: String, CaseIterable, Identifiable {
+    case week = "Week", month = "Month", year = "Year"
+    var id: String { rawValue }
+    var component: Calendar.Component { self == .week ? .weekOfYear : self == .month ? .month : .year }
+    /// Each bar of the chart: a day, or a month for a year.
+    var bucket: Calendar.Component { self == .year ? .month : .day }
+    var noun: String { rawValue.lowercased() }
+}
+
+/// The selected week (Monday–Sunday, phone's calendar), month or year and its stats, from the same engine
+/// (core/shift.js `weekStats`, whose "days" are the chart's buckets: days, or months for a year). Never in the future.
 @MainActor
 final class WeekModel: ObservableObject {
-    @Published private(set) var offset = 0   // 0 = this week, -1 = last week, …
+    @Published private(set) var span = EarningsSpan.week
+    @Published private(set) var offset = 0   // 0 = this week/month/year, -1 = the one before, …
     @Published private(set) var stats: WeekStats?
+    /// The start of each bucket (day, or month for a year).
     @Published private(set) var days: [Date] = []
     var offers: [LiveOffer] = []
 
@@ -117,27 +131,24 @@ final class WeekModel: ObservableObject {
     }
 
     var weekStart: Date {
-        let thisWeek = calendar.dateInterval(of: .weekOfYear, for: Date())?.start ?? calendar.startOfDay(for: Date())
-        return calendar.date(byAdding: .weekOfYear, value: offset, to: thisWeek) ?? thisWeek
+        let now = calendar.dateInterval(of: span.component, for: Date())?.start ?? calendar.startOfDay(for: Date())
+        return calendar.date(byAdding: span.component, value: offset, to: now) ?? now
     }
+    private var periodEnd: Date { calendar.date(byAdding: span.component, value: 1, to: weekStart) ?? weekStart }
     var isCurrentWeek: Bool { offset == 0 }
     var canGoForward: Bool { offset < 0 }
 
-    var rangeTitle: String {
-        let end = calendar.date(byAdding: .day, value: 6, to: weekStart) ?? weekStart
-        return weekStart.formatted(.dateTime.month(.abbreviated).day()) + " – " + end.formatted(.dateTime.month(.abbreviated).day())
-    }
     var subtitle: String {
         switch offset {
-        case 0: return "This week"
-        case -1: return "Last week"
-        default: return "\(-offset) weeks ago"
+        case 0: return "This " + span.noun
+        case -1: return "Last " + span.noun
+        default: return "\(-offset) \(span.noun)s ago"
         }
     }
-    /// Today's position (0 = Monday) when the current week is shown.
+    /// Today's bar when the current period is shown.
     var todayIndex: Int? {
         guard isCurrentWeek else { return nil }
-        return days.firstIndex { calendar.isDateInToday($0) }
+        return days.firstIndex { calendar.isDate($0, equalTo: Date(), toGranularity: span.bucket) }
     }
 
     func move(_ delta: Int) {
@@ -150,30 +161,54 @@ final class WeekModel: ObservableObject {
 
     func jumpToThisWeek() { move(-offset) }
 
-    /// Shows the week containing `date` (never a future week).
+    /// Shows the period containing `date` (never a future one).
     func jump(to date: Date) {
-        let thisWeek = calendar.dateInterval(of: .weekOfYear, for: Date())?.start ?? Date()
-        let target = calendar.dateInterval(of: .weekOfYear, for: min(date, Date()))?.start ?? thisWeek
-        let weeks = calendar.dateComponents([.weekOfYear], from: thisWeek, to: target).weekOfYear ?? 0
-        move(min(0, weeks) - offset)
+        let now = calendar.dateInterval(of: span.component, for: Date())?.start ?? Date()
+        let target = calendar.dateInterval(of: span.component, for: min(date, Date()))?.start ?? now
+        let steps = calendar.dateComponents([span.component], from: now, to: target).value(for: span.component) ?? 0
+        move(min(0, steps) - offset)
     }
 
-    /// "Oct 12–18, 2026" (or "Sep 28 – Oct 4, 2026" across months), like Gridwise.
+    /// Week, month or year, keeping the date shown: the week of the month shown becomes its month, and so on (the
+    /// current period when it's the current one).
+    func show(_ next: EarningsSpan, at date: Date? = nil) {
+        let anchor = date ?? (isCurrentWeek ? Date() : weekStart)
+        guard next != span || date != nil else { return }
+        span = next
+        offset = 0
+        stats = nil
+        jump(to: anchor)
+        if offset == 0 { compute() }
+    }
+
+    /// "Oct 12–18, 2026" (or "Sep 28 – Oct 4, 2026" across months), like Gridwise; "November 2026"; "2026".
     var longTitle: String {
-        let end = calendar.date(byAdding: .day, value: 6, to: weekStart) ?? weekStart
-        let sameMonth = calendar.component(.month, from: weekStart) == calendar.component(.month, from: end)
-        let first = weekStart.formatted(.dateTime.month(.abbreviated).day())
-        let last = sameMonth ? end.formatted(.dateTime.day()) : end.formatted(.dateTime.month(.abbreviated).day())
-        return first + (sameMonth ? "–" : " – ") + last + ", " + end.formatted(.dateTime.year())
+        switch span {
+        case .month: return weekStart.formatted(.dateTime.month(.wide).year())
+        case .year: return weekStart.formatted(.dateTime.year())
+        case .week:
+            let end = calendar.date(byAdding: .day, value: 6, to: weekStart) ?? weekStart
+            let sameMonth = calendar.component(.month, from: weekStart) == calendar.component(.month, from: end)
+            let first = weekStart.formatted(.dateTime.month(.abbreviated).day())
+            let last = sameMonth ? end.formatted(.dateTime.day()) : end.formatted(.dateTime.month(.abbreviated).day())
+            return first + (sameMonth ? "–" : " – ") + last + ", " + end.formatted(.dateTime.year())
+        }
     }
 
     func compute(now: Date = Date()) {
-        let start = weekStart
-        let dates = (0...7).compactMap { calendar.date(byAdding: .day, value: $0, to: start) }
-        guard dates.count == 8, let previousStart = calendar.date(byAdding: .weekOfYear, value: -1, to: start) else { return }
-        days = Array(dates.prefix(7))
+        let start = weekStart, end = periodEnd
+        var dates: [Date] = []
+        var d = start
+        while d < end, dates.count < 40 {
+            dates.append(d)
+            guard let next = calendar.date(byAdding: span.bucket, value: 1, to: d) else { break }
+            d = next
+        }
+        guard !dates.isEmpty, let previousStart = calendar.date(byAdding: span.component, value: -1, to: start) else { return }
+        days = dates
+        let bounds = dates + [end]
         let iso = ISO8601DateFormatter()
-        let from = previousStart.addingTimeInterval(-86_400), to = dates[7]
+        let from = previousStart.addingTimeInterval(-86_400), to = end
         let trips = (TripStore.shared.history + [TripStore.shared.active].compactMap { $0 })
             .filter { ($0.endedAt ?? now) >= from && $0.startedAt < to }
         let shifts = (ShiftStore.shared.history + [ShiftStore.shared.current].compactMap { $0 })
@@ -183,7 +218,7 @@ final class WeekModel: ObservableObject {
             if let area = offer.dropoffArea { row["dropoffArea"] = area }
             return row
         }
-        let dayRanges = (0..<7).map { ["start": iso.string(from: dates[$0]), "end": iso.string(from: dates[$0 + 1])] }
+        let dayRanges = dates.indices.map { ["start": iso.string(from: bounds[$0]), "end": iso.string(from: bounds[$0 + 1])] }
         let input = "{\"shifts\":\(ShiftEngine.json(encodable: shifts)),\"trips\":\(ShiftEngine.json(encodable: trips)),"
             + "\"offers\":\(ShiftEngine.json(offerRows)),\"restaurants\":\(RestaurantStore.shared.databaseJSON),"
             + "\"days\":\(ShiftEngine.json(dayRanges)),\"entries\":\(EntryStore.shared.json),"

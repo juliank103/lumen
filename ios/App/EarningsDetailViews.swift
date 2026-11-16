@@ -159,6 +159,11 @@ struct WeeklyRecapView: View {
     let stats: WeekStats
     let dates: [Date]
     let title: String
+    var span = EarningsSpan.week
+
+    static func title(_ span: EarningsSpan) -> String {
+        switch span { case .week: return "Weekly recap"; case .month: return "Monthly recap"; case .year: return "Yearly recap" }
+    }
 
     var body: some View {
         List {
@@ -169,7 +174,7 @@ struct WeeklyRecapView: View {
                 row("Orders", "\(stats.week.completed)")
             }
             if let c = stats.comparison {
-                Section("Vs. the week before") {
+                Section("Vs. the \(span.noun) before") {
                     change("Earnings", c.earnings, true)
                     change("Per hour", c.perOnlineHour, true)
                     change("Per mile", c.perMile, true)
@@ -181,7 +186,9 @@ struct WeeklyRecapView: View {
             Section("Highlights") {
                 if let best = stats.days.indices.max(by: { stats.days[$0].earningsCents < stats.days[$1].earningsCents }),
                    stats.days[best].earningsCents > 0, dates.indices.contains(best) {
-                    row("Best day", dates[best].formatted(.dateTime.weekday(.wide)) + " · " + ShiftFormat.money(stats.days[best].earningsCents))
+                    let when = span == .week ? dates[best].formatted(.dateTime.weekday(.wide))
+                        : span == .month ? dates[best].formatted(.dateTime.month(.abbreviated).day()) : dates[best].formatted(.dateTime.month(.wide))
+                    row(span == .year ? "Best month" : "Best day", when + " · " + ShiftFormat.money(stats.days[best].earningsCents))
                 }
                 if let top = stats.lenses.platform.max(by: { ($0.perHourCents ?? 0) < ($1.perHourCents ?? 0) }) {
                     row("Best-paying app", Theme.appName(top.key) + " · " + ShiftFormat.rate(top.perHourCents, "hr"))
@@ -194,7 +201,7 @@ struct WeeklyRecapView: View {
                 }
             }
         }
-        .navigationTitle("Weekly recap")
+        .navigationTitle(Self.title(span))
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -275,13 +282,14 @@ struct AppShareDonut: View {
 /// Each app's share of the week's earnings, its dollars, and its orders.
 struct AppShareList: View {
     let week: RangeMetrics
+    var noun = "week"
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("By app").font(.headline).foregroundStyle(.secondary)
             VStack(spacing: 0) {
                 let shares = appShares(week)
                 if week.earningsCents == 0 {
-                    Text("No earnings yet this week.").foregroundStyle(.secondary)
+                    Text("No earnings yet this \(noun).").foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(14)
                 }
                 ForEach(Array(shares.enumerated()), id: \.element.id) { index, share in

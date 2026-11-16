@@ -21,19 +21,24 @@ struct StatsTab: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    // Week, month or year, the same stats for each (user, Nov 15).
+                    Picker("Range", selection: Binding(get: { week.span }, set: { span in change { week.show(span) } })) {
+                        ForEach(EarningsSpan.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
                     HStack(alignment: .firstTextBaseline) {
                         Text(week.longTitle).font(.headline).foregroundStyle(.secondary)
                         Spacer()
                         if week.isCurrentWeek {
-                            Text("This week").font(.subheadline).foregroundStyle(.secondary)
+                            Text(week.subtitle).font(.subheadline).foregroundStyle(.secondary)
                         } else {
-                            Button("This week") { change { week.jumpToThisWeek() } }.font(.subheadline.weight(.semibold))
+                            Button("This " + week.span.noun) { change { week.jumpToThisWeek() } }.font(.subheadline.weight(.semibold))
                         }
                     }
                     if let stats = week.stats {
                         if !week.isCurrentWeek, stats.week.completed > 0 {
-                            NavigationLink { WeeklyRecapView(stats: stats, dates: week.days, title: week.longTitle) } label: {
-                                HistoryRow(title: "Weekly recap", icon: "doc.text", value: "")
+                            NavigationLink { WeeklyRecapView(stats: stats, dates: week.days, title: week.longTitle, span: week.span) } label: {
+                                HistoryRow(title: WeeklyRecapView.title(week.span), icon: "doc.text", value: "")
                             }
                             .buttonStyle(.plain)
                             .dasherCard()
@@ -49,20 +54,34 @@ struct StatsTab: View {
                             if chartByApp {
                                 AppShareDonut(week: stats.week).padding(.horizontal, 16).padding(.top, 18)
                             } else {
-                                WeekBarChart(days: stats.days, dates: week.days, metric: metric, today: week.todayIndex, selected: $selectedDay)
+                                WeekBarChart(days: stats.days, dates: week.days, metric: metric, today: week.todayIndex, selected: $selectedDay,
+                                             span: week.span)
                                     .padding(.horizontal, 16).padding(.top, 18)
                                 if let index = selectedDay, index < stats.days.count, index < week.days.count {
-                                    SelectedDayRow(day: stats.days[index], date: week.days[index])
-                                        .padding(.horizontal, 16).padding(.top, 6)
+                                    Group {
+                                        if week.span == .year {
+                                            SelectedMonthRow(month: stats.days[index], date: week.days[index]) {
+                                                change { week.show(.month, at: week.days[index]) }
+                                            }
+                                        } else {
+                                            SelectedDayRow(day: stats.days[index], date: week.days[index])
+                                        }
+                                    }
+                                    .padding(.horizontal, 16).padding(.top, 6)
                                 }
                             }
                         }
                         .padding(.bottom, 14)
                         .background(Theme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        WeekGoalRow(week: stats.week, editing: $editingGoal)
+                        if week.span == .week { WeekGoalRow(week: stats.week, editing: $editingGoal) }
                         RatesLine(week: stats.week).padding(.horizontal, 4)
-                        ByDayList(stats: stats, dates: week.days)
-                        AppShareList(week: stats.week)
+                        switch week.span {
+                        case .week: ByDayList(stats: stats, dates: week.days)
+                        case .month: ByDayList(stats: stats, dates: week.days, workedOnly: true)
+                        case .year:
+                            ByMonthList(stats: stats, dates: week.days) { date in change { week.show(.month, at: date) } }
+                        }
+                        AppShareList(week: stats.week, noun: week.span.noun)
                     } else {
                         ProgressView().frame(maxWidth: .infinity).padding(40)
                     }
@@ -81,12 +100,12 @@ struct StatsTab: View {
                 ToolbarItem(placement: .principal) {
                     HStack(spacing: 30) {
                         Button { change { week.move(-1) } } label: { Image(systemName: "chevron.left") }
-                            .accessibilityLabel("Previous week")
+                            .accessibilityLabel("Previous " + week.span.noun)
                         Button { pickingDate = true } label: { Image(systemName: "calendar") }
-                            .accessibilityLabel("Choose a week")
+                            .accessibilityLabel("Choose a " + week.span.noun)
                         Button { change { week.move(1) } } label: { Image(systemName: "chevron.right") }
                             .disabled(!week.canGoForward)
-                            .accessibilityLabel("Next week")
+                            .accessibilityLabel("Next " + week.span.noun)
                     }
                     .font(.body.weight(.semibold))
                 }
@@ -107,11 +126,12 @@ struct StatsTab: View {
             }
             .sheet(item: $editingShift) { target in ShiftEditor(shift: target.shift) }
             .sheet(isPresented: $pickingDate) {
-                WeekPicker(start: week.weekStart) { date in change { week.jump(to: date) } }
+                WeekPicker(start: week.weekStart, noun: week.span.noun) { date in change { week.jump(to: date) } }
                     .presentationDetents([.medium])
             }
             .goalEditor(isPresented: $editingGoal)
             .sensoryFeedback(.selection, trigger: week.offset)
+            .sensoryFeedback(.selection, trigger: week.span)
             .sensoryFeedback(.selection, trigger: chartByApp)
             .sensoryFeedback(.selection, trigger: metric)
             .confirmationDialog("End this shift?", isPresented: $confirmEnd) {
@@ -126,6 +146,10 @@ struct StatsTab: View {
             }
             .onAppear {
                 week.offers = model.offers
+                // Screenshots in the cloud build: `-span month|year`.
+                if PreviewData.isActive, let span = UserDefaults.standard.string(forKey: "span").flatMap({ EarningsSpan(rawValue: $0.capitalized) }) {
+                    week.show(span)
+                }
                 week.compute()
                 if selectedDay == nil { selectedDay = week.todayIndex }
             }
@@ -150,19 +174,20 @@ struct StatsTab: View {
 
 }
 
-/// Choose any past date; its week is shown.
+/// Choose any past date; its week (month, year) is shown.
 struct WeekPicker: View {
     @Environment(\.dismiss) private var dismiss
     let start: Date
+    var noun = "week"
     let onPick: (Date) -> Void
     @State private var date = Date()
 
     var body: some View {
         NavigationStack {
-            DatePicker("Week of", selection: $date, in: ...Date(), displayedComponents: .date)
+            DatePicker("Date", selection: $date, in: ...Date(), displayedComponents: .date)
                 .datePickerStyle(.graphical)
                 .padding(.horizontal)
-                .navigationTitle("Go to week")
+                .navigationTitle("Go to " + noun)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
@@ -345,36 +370,41 @@ struct MetricTiles: View {
     }
 }
 
-/// Mon–Sun bars, always all seven (empty days as short stubs), today marked; tap a bar to select its day.
+/// Mon–Sun bars, always all seven (empty days as short stubs), today marked; tap a bar to select its day. A month has a
+/// thin bar per day (labels on the 1st, 8th, 15th, 22nd, 29th), a year a bar per month; their values show in the row below.
 struct WeekBarChart: View {
     let days: [RangeMetrics]
     let dates: [Date]
     let metric: ChartMetric
     let today: Int?
     @Binding var selected: Int?
+    var span = EarningsSpan.week
     private let height: CGFloat = 130
 
     var body: some View {
         let values = days.map { metric.value($0) }
         let top = max(values.max() ?? 0, 0.0001)
-        HStack(alignment: .bottom, spacing: 10) {
+        let thin = span == .month
+        HStack(alignment: .bottom, spacing: thin ? 2 : span == .year ? 5 : 10) {
             ForEach(Array(values.enumerated()), id: \.offset) { index, value in
                 Button { withAnimation(.easeInOut(duration: 0.15)) { selected = selected == index ? nil : index } } label: {
                     VStack(spacing: 6) {
-                        Text(value > 0 ? metric.bar(value) : " ").font(.caption.weight(.semibold))
+                        Text(value > 0 && span == .week ? metric.bar(value) : " ").font(.caption.weight(.semibold))
                             .foregroundStyle(selected == nil || selected == index ? Color.primary : Color.secondary)
                             .lineLimit(1).minimumScaleFactor(0.6)
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        RoundedRectangle(cornerRadius: thin ? 2 : 6, style: .continuous)
                             .fill(color(index, empty: value <= 0))
-                            .frame(width: 30, height: value > 0 ? max(8, height * CGFloat(value / top)) : 8)
+                            .frame(maxWidth: span == .week ? 30 : .infinity)
+                            .frame(height: value > 0 ? max(8, height * CGFloat(value / top)) : 8)
                         Text(letter(index)).font(.footnote.weight(index == today ? .bold : .regular))
                             .foregroundStyle(index == today ? Color.primary : Color.secondary)
+                            .lineLimit(1).fixedSize()
                     }
                     .frame(maxWidth: .infinity, minHeight: height + 46, alignment: .bottom)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("\(dates.indices.contains(index) ? dates[index].formatted(.dateTime.weekday(.wide)) : ""): \(metric.bar(value))")
+                .accessibilityLabel("\(name(index)): \(metric.bar(value))")
             }
         }
     }
@@ -387,7 +417,77 @@ struct WeekBarChart: View {
 
     private func letter(_ index: Int) -> String {
         guard dates.indices.contains(index) else { return "" }
-        return String(dates[index].formatted(.dateTime.weekday(.narrow)))
+        switch span {
+        case .week: return dates[index].formatted(.dateTime.weekday(.narrow))
+        case .year: return dates[index].formatted(.dateTime.month(.narrow))
+        case .month: return index % 7 == 0 ? dates[index].formatted(.dateTime.day()) : ""
+        }
+    }
+
+    private func name(_ index: Int) -> String {
+        guard dates.indices.contains(index) else { return "" }
+        switch span {
+        case .week: return dates[index].formatted(.dateTime.weekday(.wide))
+        case .month: return dates[index].formatted(.dateTime.month(.wide).day())
+        case .year: return dates[index].formatted(.dateTime.month(.wide))
+        }
+    }
+}
+
+/// The tapped month of a year, in one line under the chart; opens the month.
+struct SelectedMonthRow: View {
+    let month: RangeMetrics
+    let date: Date
+    let open: () -> Void
+    var body: some View {
+        Button(action: open) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(date.formatted(.dateTime.month(.wide).year())).font(.subheadline.weight(.semibold))
+                    Text(month.completed == 0 && month.onlineSeconds == 0 && month.earningsCents == 0 ? "No work this month"
+                         : "\(month.completed) order\(month.completed == 1 ? "" : "s") · \(ShiftFormat.duration(month.onlineSeconds)) · \(ShiftFormat.rate(month.perOnlineHourCents, "hr"))")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text(ShiftFormat.money(month.earningsCents)).font(.subheadline.weight(.semibold).monospacedDigit())
+                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+            }
+            .padding(12)
+            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// A year's months as rows (up to this month), each opening that month.
+struct ByMonthList: View {
+    let stats: WeekStats
+    let dates: [Date]
+    let open: (Date) -> Void
+
+    var body: some View {
+        let shown = dates.indices.filter { $0 < stats.days.count && dates[$0] <= Date() }
+        VStack(alignment: .leading, spacing: 8) {
+            Text("By month").font(.headline).foregroundStyle(.secondary)
+            VStack(spacing: 0) {
+                ForEach(Array(shown.enumerated()), id: \.element) { position, index in
+                    Button { open(dates[index]) } label: {
+                        HStack {
+                            Text(dates[index].formatted(.dateTime.month(.wide)))
+                            Spacer()
+                            Text(ShiftFormat.money(stats.days[index].earningsCents)).monospacedDigit()
+                            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                        }
+                        .padding(.vertical, 13)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    if position < shown.count - 1 { Divider() }
+                }
+            }
+            .padding(.horizontal, 16)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
     }
 }
 
@@ -431,13 +531,23 @@ struct RatesLine: View {
 struct ByDayList: View {
     let stats: WeekStats
     let dates: [Date]
+    /// A month lists only the days worked.
+    var workedOnly = false
     @ObservedObject private var goals = GoalStore.shared
 
     var body: some View {
+        let shown = stats.days.indices.filter { i in
+            !workedOnly || stats.days[i].completed > 0 || stats.days[i].onlineSeconds > 0 || stats.days[i].earningsCents > 0
+        }
         VStack(alignment: .leading, spacing: 8) {
             Text("By day").font(.headline).foregroundStyle(.secondary)
             VStack(spacing: 0) {
-                ForEach(Array(stats.days.enumerated()), id: \.offset) { index, day in
+                if shown.isEmpty {
+                    Text("No work this month.").foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 13)
+                }
+                ForEach(shown, id: \.self) { index in
+                    let day = stats.days[index]
                     if dates.indices.contains(index) {
                         NavigationLink { DayDetailView(day: day, date: dates[index]) } label: {
                             HStack {
@@ -454,7 +564,7 @@ struct ByDayList: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        if index < stats.days.count - 1 { Divider() }
+                        if index != shown.last { Divider() }
                     }
                 }
             }

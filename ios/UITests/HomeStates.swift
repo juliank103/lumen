@@ -47,5 +47,6 @@ final class HomeStates: XCTestCase {
         capture("order", name: "order-options-menu", tap: "Order options")
         capture("waiting", extra: ["-tab", "1"], name: "offer-map-check", open: "Mendocino Farms")
         for (tab, name) in [(1, "offers"), (2, "earnings"), (5, "breakdown"), (6, "planner"), (7, "zones")] { capture("waiting", extra: ["-tab", String(tab)], name: name) }
+        for span in ["month", "year"] { capture("waiting", extra: ["-tab", "2", "-span", span], name: "earnings-" + span) }
     }
 }
